@@ -21,15 +21,21 @@ export const addSupplier = async (supplierData: any, token: string) => {
 
 // ✅ ดึงข้อมูลซัพพลายเออร์ทั้งหมด
 export const getSupplierData = async (token: string | null) => {
+    if (!token) return [];
     try {
-        if (!token) throw new Error("Unauthorized: No token provided");
         const response = await axios.get(`${API_BASE_URL}/suppliers`, {
-            headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` },
+        // 👇 ทำให้ 401/403 ไม่ถูก reject (interceptor ฝั่ง error จะไม่ทำงาน)
+        validateStatus: () => true,
         });
-        return response.data.data;
-    } catch (error: any) {
-        console.error("❌ getSupplierData Error:", error);
-        throw error.response?.data || { message: "เกิดข้อผิดพลาดในการดึงข้อมูลซัพพลายเออร์" };
+
+        if (response.status === 401 || response.status === 403) {
+        return []; // employee ไม่มีสิทธิ์ → ไม่ต้องเด้ง login
+        }
+        return response.data?.data ?? [];
+    } catch (err) {
+        console.error("❌ getSupplierData Error:", err);
+        return []; // กันไม่ให้ bubble ไปถึง interceptor
     }
 };
 

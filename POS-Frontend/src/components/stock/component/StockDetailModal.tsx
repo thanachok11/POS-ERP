@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from "react";
-
 import { updateProduct, updateProductImage } from "../../../api/product/productApi";
 import { updateStock, deleteStock } from "../../../api/stock/stock";
 import { getWarehouses } from "../../../api/product/warehousesApi";
-import { useGlobalPopup } from "../../../components/common/GlobalPopupEdit"; // ✅ popup กลาง
-
+import { useGlobalPopup } from "../../../components/common/GlobalPopupEdit";
 import { useNavigate } from "react-router-dom";
 
 interface StockDetailModalProps {
@@ -14,6 +12,30 @@ interface StockDetailModalProps {
   stock: any;
   onSuccess: (message?: string, success?: boolean) => void;
 }
+
+// ---- utils: อ่าน payload จาก JWT
+const getPayloadFromToken = (): any | null => {
+  try {
+    const t =
+      localStorage.getItem("token") ||
+      localStorage.getItem("authToken") ||
+      "";
+    if (!t || !t.includes(".")) return null;
+    return JSON.parse(atob(t.split(".")[1]));
+  } catch {
+    return null;
+  }
+};
+
+// ---- utils: อ่าน role (localStorage -> token -> fallback employee)
+const readRole = (): "admin" | "employee" => {
+  const ls = (localStorage.getItem("role") || "").trim().toLowerCase();
+  if (ls === "admin" || ls === "employee") return ls as any;
+  const payload = getPayloadFromToken();
+  const pr = (payload?.role || "").trim().toLowerCase();
+  if (pr === "admin" || pr === "employee") return pr as any;
+  return "employee";
+};
 
 const StockDetailModal: React.FC<StockDetailModalProps> = ({
   isOpen,
@@ -33,17 +55,18 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
 
   const navigate = useNavigate();
 
+  // ---- role & readOnly mode
+  const role = readRole();
+  const isAdmin = role === "admin";
+  const isReadOnly = !isAdmin;
+
   useEffect(() => {
     if (stock?.productId) setFormData(stock.productId);
     if (stock) {
-      // ✅ normalize ข้อมูล supplier/location ให้แบนราบ
       const normalized = {
         ...stock,
         supplier: stock?.supplierId?.companyName || stock?.supplier || "",
-        location:
-          stock?.location?._id ||
-          stock?.location ||
-          "",
+        location: stock?.location?._id || stock?.location || "",
       };
       setStockData(normalized);
     }
@@ -68,7 +91,6 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
     fetchWarehouse();
   }, [stock]);
 
-
   if (!isOpen || !stock) return null;
 
   const checkIsOtherSupplier = (): boolean => {
@@ -77,106 +99,78 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
       stockData?.supplierId?.companyName ||
       "";
     const nameLower = supplierName.trim().toLowerCase();
-    return (
-      nameLower === "อื่นๆ" ||
-      nameLower === "อื่น ๆ" ||
-      nameLower === "other"
-    );
-  }
+    return nameLower === "อื่นๆ" || nameLower === "อื่น ๆ" || nameLower === "other";
+  };
 
+  // ---- block change in readOnly mode
   const handleProductChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    if (isReadOnly) return;
     const { name, value } = e.target;
     setFormData((prev: any) => ({ ...prev, [name]: value }));
   };
 
-  const handleStockChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleStockChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (isReadOnly) return;
     const { name, type, value } = e.target;
-
     setStockData((prev: any) => ({
       ...prev,
-      [name]:
-        type === "checkbox"
-          ? (e.target as HTMLInputElement).checked 
-          : value,
+      [name]: type === "checkbox" ? (e.target as HTMLInputElement).checked : value,
     }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isReadOnly) return; // กันกด submit ผ่านทางโปรแกรม
     const token = localStorage.getItem("token");
     if (!token) return;
 
     try {
       setLoading(true);
 
-      // ✅ เตรียม payload สำหรับอัปเดต stock
       const updatedStockData: any = {
-        supplier:
-          stockData?.supplier ||
-          stockData?.supplierId?.companyName ||
-          "",
-        location:
-          stockData?.location?._id ||
-          stockData?.location ||
-          "",
+        supplier: stockData?.supplier || stockData?.supplierId?.companyName || "",
+        location: stockData?.location?._id || stockData?.location || "",
         threshold: stockData.threshold,
         status: stockData.status,
         notes: stockData.notes,
-        isActive: stockData.isActive, // ✅ เพิ่มค่านี้ไปให้แน่ ๆ
+        isActive: stockData.isActive,
         costPrice: stockData.costPrice,
         salePrice: stockData.salePrice,
         batchNumber: stockData.batchNumber,
         expiryDate: stockData.expiryDate,
       };
 
-      // ✅ เพิ่มการอัปเดตสถานะไปที่ตัวสินค้า (product) ด้วย
       const updatedProductData: any = {
         ...formData,
-        isActive: stockData.isActive, // ✅ เพิ่มตรงนี้
-        
+        isActive: stockData.isActive,
       };
 
-      // ✅ เฉพาะกรณี supplier อื่นๆ ให้ส่ง quantity
       if (checkIsOtherSupplier()) {
         updatedStockData.quantity = stockData.quantity;
       }
 
-      console.log("🧩 updatedProductData:", updatedProductData);
-      console.log("🧩 updatedStockData:", updatedStockData);
-
-      // ✅ อัปเดต product (รวมสถานะเปิด/ปิดขาย)
       await updateProduct(stock.productId._id, updatedProductData);
-
-      // ✅ อัปเดต stock
       if (stock?.barcode) {
         await updateStock(stock.barcode, updatedStockData);
       }
 
-      // ✅ อัปโหลดรูปภาพถ้ามี
       if (image) {
         const formDataUpload = new FormData();
         formDataUpload.append("image", image);
         formDataUpload.append("name", formData.name);
         formDataUpload.append("description", formData.description);
         formDataUpload.append("category", formData.category?._id || "");
-        formDataUpload.append("isActive", String(stockData.isActive)); // ✅ แปลงเป็น string เพื่อแน่ใจว่า backend รับได้
+        formDataUpload.append("isActive", String(stockData.isActive));
         formDataUpload.append("costPrice", String(stockData.costPrice));
         formDataUpload.append("salePrice", String(stockData.salePrice));
-
-        await updateProductImage(stock.productId._id, formDataUpload, token); // ✅ ต้องส่ง id ด้วย
-      } else {
-        await updateProduct(stock.productId._id, updatedProductData);
+        await updateProductImage(stock.productId._id, formDataUpload, token);
       }
-
 
       onSuccess("✅ บันทึกการแก้ไขสำเร็จ", true);
       onClose();
     } catch (err: any) {
       console.error("❌ Update error:", err);
       let errorMessage = "เกิดข้อผิดพลาดในการอัปเดตข้อมูล";
-
       if (err.response) {
         errorMessage =
           err.response.data?.message ||
@@ -187,22 +181,19 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
       } else if (err.message) {
         errorMessage = err.message;
       }
-
       onSuccess(`${errorMessage}`, false);
     } finally {
       setLoading(false);
     }
   };
 
-
   const handleDelete = async () => {
+    if (isReadOnly) return; // กันลบ
     const token = localStorage.getItem("token");
     if (!token) return;
-
     try {
       setLoading(true);
       await deleteStock(stock.barcode);
-
       onSuccess("ลบสต็อกสำเร็จ 🗑️", true);
       onClose();
     } catch (err) {
@@ -212,9 +203,6 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
       setLoading(false);
     }
   };
-
-
-
 
   return (
     <div className="product-detail-modal-overlay">
@@ -242,9 +230,7 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
           {/* --- PRODUCT TAB --- */}
           {activeTab === "product" && (
             <div className="tab-content">
-              {/* แถว 1 */}
               <div className="stock-form-row">
-                {/* 🧾 ชื่อสินค้า */}
                 <div className="stock-form-group">
                   <label>ชื่อสินค้า:</label>
                   <input
@@ -253,10 +239,10 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                     value={formData?.name || ""}
                     onChange={handleProductChange}
                     placeholder="กรอกชื่อสินค้า..."
+                    readOnly={isReadOnly}
                   />
                 </div>
 
-                {/* 🏷️ หมวดหมู่ (ห้ามแก้ไข) */}
                 <div className="stock-form-group">
                   <label>หมวดหมู่:</label>
                   <input
@@ -268,12 +254,11 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                         : formData?.category || "ไม่พบข้อมูล"
                     }
                     readOnly
-                    className="readonly-input" // ✅ เพิ่มคลาสให้ style แยกต่างหาก
+                    className="readonly-input"
                   />
                 </div>
               </div>
 
-              {/* 🧾 รายละเอียด */}
               <div className="stock-form-group">
                 <label>รายละเอียด:</label>
                 <textarea
@@ -282,20 +267,18 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                   onChange={handleProductChange}
                   placeholder="ระบุรายละเอียดสินค้า..."
                   rows={3}
+                  readOnly={isReadOnly}
                 />
               </div>
 
-              {/* 🖼️ อัปโหลดรูปสินค้า */}
               <div className="stock-form-group">
                 <label>เปลี่ยนรูปสินค้า:</label>
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={(e) =>
-                    e.target.files && setImage(e.target.files[0])
-                  }
+                  onChange={(e) => !isReadOnly && e.target.files && setImage(e.target.files[0])}
+                  disabled={isReadOnly}
                 />
-
                 {(image || formData?.imageUrl) && (
                   <img
                     src={image ? URL.createObjectURL(image) : formData.imageUrl}
@@ -310,7 +293,6 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
           {/* --- STOCK TAB --- */}
           {activeTab === "stock" && (
             <div className="tab-content">
-              {/* Row 1 */}
               <div className="stock-form-row">
                 <div className="stock-form-group">
                   <label>จำนวนสต็อก:</label>
@@ -320,14 +302,13 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                       name="quantity"
                       value={stockData.totalQuantity || 0}
                       onChange={handleStockChange}
-                      disabled={!checkIsOtherSupplier()}
+                      disabled={isReadOnly || !checkIsOtherSupplier()}
                     />
                     {!checkIsOtherSupplier() && (
                       <span className="disabled-tooltip">
                         ⚠️ ไม่สามารถแก้ไขจำนวนได้<br />เนื่องจากเป็นสินค้านำเข้าภายนอก
                       </span>
                     )}
-                   
                   </div>
                 </div>
 
@@ -338,12 +319,11 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                     name="threshold"
                     value={stockData?.threshold || 0}
                     onChange={handleStockChange}
+                    disabled={isReadOnly}
                   />
                 </div>
               </div>
 
-
-              {/* Row 2 */}
               <div className="stock-form-row">
                 <div className="stock-form-group">
                   <label>ราคาทุน (Cost Price):</label>
@@ -352,6 +332,7 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                     name="costPrice"
                     value={stockData?.costPrice || 0}
                     onChange={handleStockChange}
+                    disabled={isReadOnly}
                   />
                 </div>
 
@@ -362,11 +343,11 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                     name="salePrice"
                     value={stockData?.salePrice || 0}
                     onChange={handleStockChange}
+                    disabled={isReadOnly}
                   />
                 </div>
               </div>
 
-              {/* Row 4 */}
               <div className="stock-form-row">
                 <div className="stock-form-group">
                   <label>ซัพพลายเออร์:</label>
@@ -379,7 +360,6 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                     }
                     readOnly
                   />
-
                 </div>
 
                 <div className="stock-form-group">
@@ -388,7 +368,6 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                 </div>
               </div>
 
-              {/* Row 5 */}
               <div className="stock-form-row">
                 <div className="stock-form-group">
                   <label>เลขบาร์โค้ต:</label>
@@ -407,9 +386,11 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                     name="notes"
                     value={stockData?.notes || ""}
                     onChange={handleStockChange}
+                    disabled={isReadOnly}
                   />
                 </div>
               </div>
+
               <div className="stock-form-row">
                 <div className="stock-form-group">
                   <label>หน่วยสินค้า:</label>
@@ -423,8 +404,7 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                     }
                     readOnly
                   />
-
-                </div>     
+                </div>
                 <div className="stock-form-group">
                   <label>สถานะสินค้า:</label>
                   <div className="toggle-wrapper">
@@ -434,6 +414,7 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                         name="isActive"
                         checked={!!stockData?.isActive}
                         onChange={handleStockChange}
+                        disabled={isReadOnly}
                       />
                       <span className="slider"></span>
                     </label>
@@ -442,48 +423,51 @@ const StockDetailModal: React.FC<StockDetailModalProps> = ({
                     </span>
                   </div>
                 </div>
-
-      
               </div>
-              <button
-                type="button"
-                className="stock-import-btn"
-                onClick={() => navigate("/create-purchase-order")}
-              >
-                นำเข้าสินค้าใหม่
-              </button>
+
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="stock-import-btn"
+                  onClick={() => navigate("/create-purchase-order")}
+                >
+                  นำเข้าสินค้าใหม่
+                </button>
+              )}
             </div>
           )}
 
-
-
           {/* --- ACTIONS --- */}
           <div className="stock-form-actions">
-            <button
-              type="button"
-              className="delete-btn-modal"
-              onClick={() =>
-                showPopup({
-                  type: "confirm",
-                  message: `ต้องการลบสต็อก "${formData?.name || "ไม่ทราบชื่อ"}" ใช่ไหม?`,
-                  onConfirm: async () => {
-                    await handleDelete();
-                    closePopup(); // ✅ ปิด popup ทันทีหลังยืนยัน
-                    onClose();    // ✅ ปิด modal หลัก
-                  },
-                })
-              }
-            >
-              ลบสต็อก
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                className="delete-btn-modal"
+                onClick={() =>
+                  showPopup({
+                    type: "confirm",
+                    message: `ต้องการลบสต็อก "${formData?.name || "ไม่ทราบชื่อ"}" ใช่ไหม?`,
+                    onConfirm: async () => {
+                      await handleDelete();
+                      closePopup();
+                      onClose();
+                    },
+                  })
+                }
+              >
+                ลบสต็อก
+              </button>
+            )}
 
-            <button
-              type="submit"
-              className={`save-btn-modal ${loading ? "loading" : ""}`}
-              disabled={loading}
-            >
-              {loading ? <span className="spinner"></span> : "บันทึกการแก้ไข"}
-            </button>
+            {isAdmin && (
+              <button
+                type="submit"
+                className={`save-btn-modal ${loading ? "loading" : ""}`}
+                disabled={loading}
+              >
+                {loading ? <span className="spinner"></span> : "บันทึกการแก้ไข"}
+              </button>
+            )}
           </div>
         </form>
       </div>

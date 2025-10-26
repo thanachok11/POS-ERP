@@ -124,32 +124,51 @@ export const deleteProduct = async (req: Request, res: Response): Promise<void> 
 export const getProducts = async (req: Request, res: Response): Promise<void> => {
   try {
     const token = req.header("Authorization")?.split(" ")[1];
-    if (!token) {
-      res.status(401).json({ success: false, message: "Unauthorized" });
-      return;
-    }
+    if (!token) { res.status(401).json({ success:false, message:"Unauthorized" }); return; }
 
     const decoded = verifyToken(token);
     if (typeof decoded === "string" || !("userId" in decoded)) {
-      res.status(401).json({ success: false, message: "Invalid token" });
-      return;
+      res.status(401).json({ success:false, message:"Invalid token" }); return;
     }
 
     const ownerId = await getOwnerId(decoded.userId);
 
-    const stocks = await Stock.find({ userId: ownerId })
+    const onlyAvailable =
+      String(req.query.onlyAvailable || "").toLowerCase() === "true" ||
+      String(req.query.onlyAvailable || "").toLowerCase() === "1";
+
+    // เงื่อนไขฝั่ง Stock
+    const find: any = { userId: ownerId };
+    if (onlyAvailable) {
+      find.isActive = { $ne: false };        // ค่า undefined = ผ่าน
+      find.totalQuantity = { $gt: 0 };
+      find.status = { $ne: "สินค้าหมด" };
+    }
+
+    const stocks = await Stock.find(find)
       .populate({
         path: "productId",
         model: "Product",
+        // ❌ อย่าใช้ match:{isActive:true} ตัดของทิ้ง
+        // ใช้ select เฉย ๆ พอ แล้วไปกรองด้วยโค้ดด้านล่าง
+        select: "name description barcode imageUrl category salePrice costPrice isActive",
         populate: { path: "category", model: "Category", select: "name" },
-        select: "name description price barcode imageUrl category"
       })
       .populate("location", "name code")
       .populate("supplierId", "companyName contactName")
       .lean();
 
-    res.status(200).json({ success: true, data: stocks });
-  } catch (error: any) {
+    // ถ้าอยากซ่อนสินค้าที่ปิดใช้งานจริง ๆ ให้กรองหลัง populate แบบยืดหยุ่น
+    const data = onlyAvailable
+      ? (stocks || []).filter(s =>
+          (s.totalQuantity ?? 0) > 0 &&
+          s.isActive !== false &&                         // stock ปิดไว้ไหม
+          (s.productId ? s.productId.isActive !== false : true) // product ปิดไว้ไหม (undefined = ผ่าน)
+        )
+      : (stocks || []);
+
+    res.status(200).json({ success: true, data });
+  } catch (error) {
     console.error("❌ Get Products Error:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }

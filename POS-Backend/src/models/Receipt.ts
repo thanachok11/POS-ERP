@@ -4,6 +4,8 @@ export interface IReceiptItem {
     barcode: string;
     name: string;
     price: number;
+    costPrice?: number;
+    cost?: number;
     quantity: number;
     subtotal: number;
     discount?: number; // ✅ ส่วนลดต่อสินค้า (ถ้ามี)
@@ -11,6 +13,7 @@ export interface IReceiptItem {
 }
 
 export interface IReceipt extends Document {
+    userId?: mongoose.Types.ObjectId;
     paymentId?: mongoose.Types.ObjectId | null;
     originalReceiptId?: mongoose.Types.ObjectId | null; // ใบเสร็จต้นทาง (กรณีคืนสินค้า)
     returnReceiptId?: mongoose.Types.ObjectId | null;   // ใบเสร็จคืน (กรณีถูกคืน)
@@ -44,6 +47,7 @@ const ReceiptItemSchema = new Schema<IReceiptItem>(
 
 const ReceiptSchema = new Schema<IReceipt>(
     {
+        userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
         paymentId: { type: Schema.Types.ObjectId, ref: "Payment", default: null },
         originalReceiptId: { type: Schema.Types.ObjectId, ref: "Receipt", default: null },
         returnReceiptId: { type: Schema.Types.ObjectId, ref: "Receipt", default: null },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { getStockData } from "../../api/stock/stock";
 import { getSupplierData } from "../../api/suppliers/supplierApi";
 
@@ -115,8 +115,14 @@ const StockPage: React.FC = () => {
       const token = localStorage.getItem("token");
       if (!token) return;
       const supplierList = await getSupplierData(token);
-      setSuppliers(supplierList);
-    } catch (err) {
+      setSuppliers(Array.isArray(supplierList) ? supplierList : supplierList.data || []);
+    } catch (err:any) {
+      // ถ้าโดน 401/403 ก็เงียบไว้และไม่โยน error ออกไป (กัน interceptor กลาง)
+      if (err?.response?.status === 401 || err?.response?.status === 403) {
+        console.warn("Supplier endpoint requires admin, skipping for employee.");
+        setSuppliers([]); 
+        return;
+      }
       console.error("Supplier Fetch Error:", err);
     }
   };
@@ -141,12 +147,14 @@ const StockPage: React.FC = () => {
   }, []);
 
   //  load initial data
+  const role = user?.role?.toLowerCase();
+
   useEffect(() => {
     fetchData();
     fetchWarehouses();
     fetchCategories();
-    fetchSuppliers();
-  }, []);
+    if (role === "admin") fetchSuppliers();
+  }, [role]);
 
   //  helpers
   const getLocationName = (location: any) => {
@@ -277,17 +285,46 @@ const StockPage: React.FC = () => {
   const hasStatus = (item: StockItem, status: string) =>
     item.status?.trim() === status;
 
-  const summary = {
-    available: filteredStock.filter(i => hasStatus(i, "สินค้าพร้อมขาย")).length,
-    lowStock: filteredStock.filter(i => hasStatus(i, "สินค้าเหลือน้อย")).length,
-    expired: filteredStock.filter(i => i.expiryDate && new Date(i.expiryDate) < now).length,
-    nearExpiry: filteredStock.filter(i => {
+  const summary = useMemo(() => {
+    const list = stockData || [];
+    const q = (n: any) => Number(n ?? 0);
+
+    const now = new Date();
+    const near = new Date();
+    near.setDate(now.getDate() + 10);
+
+    const isAvailable = (i: StockItem) =>
+      (i.isActive ?? true) && q(i.totalQuantity) > 0 && i.status?.trim() === "สินค้าพร้อมขาย";
+
+    const isLowStock = (i: StockItem) => {
+      const qty = q(i.totalQuantity);
+      const th = Number(i.threshold ?? 0);
+      return (i.isActive ?? true) && qty > 0 && (i.status?.trim() === "สินค้าเหลือน้อย" || qty <= th);
+    };
+
+    const isOut = (i: StockItem) =>
+      q(i.totalQuantity) <= 0 || i.status?.trim() === "สินค้าหมด";
+
+    const isExpired = (i: StockItem) => {
       if (!i.expiryDate) return false;
-      const exp = new Date(i.expiryDate);
-      return exp >= now && exp <= nearExpiryThreshold;
-    }).length,
-    outOfStock: filteredStock.filter(i => hasStatus(i, "สินค้าหมด") || i.totalQuantity === 0).length,
-  };
+      const d = new Date(i.expiryDate);
+      return d < now;
+    };
+
+    const isNearExpiry = (i: StockItem) => {
+      if (!i.expiryDate) return false;
+      const d = new Date(i.expiryDate);
+      return d >= now && d <= near;
+    };
+
+    return {
+      available: list.filter(isAvailable).length,
+      lowStock: list.filter(isLowStock).length,
+      nearExpiry: list.filter(isNearExpiry).length,
+      expired: list.filter(isExpired).length,
+      outOfStock: list.filter(isOut).length,
+    };
+  }, [stockData]);
 
   //  pagination
   const startIndex = (currentPage - 1) * itemsPerPage;

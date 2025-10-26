@@ -3,7 +3,7 @@
     left: 0;
     top: 65px;
     width: 230px;
-    height: calc(100% - 80px);
+    height: calc(100vh - 65px);
     /* หักความสูงของ header */
     background: linear-gradient(135deg, #5e768b, #456686);
     color: white;
@@ -15,6 +15,7 @@
     box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
     transition: all 0.3s ease-in-out;
     z-index: 2000;
+    overflow: hidden;
 }
 
 /* ส่วนหัว */

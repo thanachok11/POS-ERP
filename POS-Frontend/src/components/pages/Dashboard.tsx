@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { th } from "date-fns/locale";
+import { jwtDecode } from "jwt-decode";
 
 import "../../styles/page/DashboardPage.css";
 
@@ -16,8 +17,9 @@ import DashboardKpiRow, { KpiCardItem } from "./dashboard/DashboardKpiRow";
 import DashboardPieChartCard from "./dashboard/DashboardPieChartCard";
 import DashboardLineChartCard from "./dashboard/DashboardLineChartCard";
 import DashboardTimeline from "./dashboard/DashboardTimeline";
+import { resolveApprovedPurchaseTotal } from "../../utils/purchaseOrders";
 
-type RangeKey = "daily" | "weekly" | "monthly";
+type RangeKey = "daily" | "weekly" | "monthly" | "yearly";
 
 type PaymentEntry = {
   id: string;
@@ -32,6 +34,7 @@ type PurchaseOrderEntry = {
   createdAt?: string;
   items: any[];
   total: number;
+  stockLots: any[];
 };
 
 type StockTimelineEntry = {
@@ -69,10 +72,15 @@ const getRangeBounds = (range: RangeKey, selected: Date) => {
     return { start: baseStart, end };
   }
 
-  // monthly
-  const monthStart = new Date(base.getFullYear(), base.getMonth(), 1);
-  const monthEnd = new Date(base.getFullYear(), base.getMonth() + 1, 1);
-  return { start: monthStart, end: monthEnd };
+  if (range === "monthly") {
+    const monthStart = new Date(base.getFullYear(), base.getMonth(), 1);
+    const monthEnd = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+    return { start: monthStart, end: monthEnd };
+  }
+
+  const yearStart = new Date(base.getFullYear(), 0, 1);
+  const yearEnd = new Date(base.getFullYear() + 1, 0, 1);
+  return { start: yearStart, end: yearEnd };
 };
 
 const getPreviousRangeBounds = (range: RangeKey, selected: Date) => {
@@ -97,19 +105,6 @@ const sanitizeNumber = (value: any) => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
-const resolvePurchaseTotal = (po: PurchaseOrderEntry) => {
-  if (typeof po.total === "number" && !Number.isNaN(po.total)) {
-    return po.total;
-  }
-  return (po.items || []).reduce((sum, item) => {
-    const line =
-      typeof item?.total === "number"
-        ? item.total
-        : sanitizeNumber(item?.costPrice) * sanitizeNumber(item?.quantity);
-    return sum + sanitizeNumber(line);
-  }, 0);
-};
-
 const SALES_EMPTY_STATE = "ไม่พบข้อมูลยอดขายในช่วงที่เลือก";
 
 export default function Dashboard() {
@@ -124,8 +119,40 @@ export default function Dashboard() {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      try {
+        const decoded: any = jwtDecode(token);
+        setUserRole(typeof decoded?.role === "string" ? decoded.role : null);
+      } catch (err) {
+        console.warn("ไม่สามารถถอดรหัสโทเคนได้", err);
+        setUserRole(null);
+      }
+    } else {
+      setUserRole(null);
+    }
+    setAuthChecked(true);
+  }, []);
+
+  const isAdmin = (userRole || "").toLowerCase() === "admin";
+
+  useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
+    if (!isAdmin) {
+      setSummaryData(null);
+      setPayments([]);
+      setPurchaseOrders([]);
+      setStockTransactions([]);
+      setProducts([]);
+      setLoading(false);
+      return;
+    }
     let ignore = false;
     const load = async () => {
       setLoading(true);
@@ -151,8 +178,8 @@ export default function Dashboard() {
         const paymentListRaw = Array.isArray(paymentRes?.data)
           ? paymentRes.data
           : Array.isArray(paymentRes)
-            ? paymentRes
-            : [];
+          ? paymentRes
+          : [];
         const paymentSanitized: PaymentEntry[] = paymentListRaw
           .filter(Boolean)
           .map((item: any) => ({
@@ -173,8 +200,8 @@ export default function Dashboard() {
         const purchaseRaw = Array.isArray(purchaseRes?.data)
           ? purchaseRes.data
           : Array.isArray(purchaseRes)
-            ? purchaseRes
-            : [];
+          ? purchaseRes
+          : [];
         const purchaseSanitized: PurchaseOrderEntry[] = purchaseRaw
           .filter(Boolean)
           .map((po: any) => {
@@ -192,6 +219,7 @@ export default function Dashboard() {
                 po?.createdAt || po?.orderedAt || po?.date || po?.invoiceDate || po?.updatedAt,
               items,
               total: sanitizeNumber(totalCandidate),
+              stockLots: Array.isArray(po?.stockLots) ? po.stockLots : [],
             };
           });
         setPurchaseOrders(purchaseSanitized);
@@ -199,8 +227,8 @@ export default function Dashboard() {
         const stockRaw = Array.isArray(stockRes?.data)
           ? stockRes.data
           : Array.isArray(stockRes)
-            ? stockRes
-            : [];
+          ? stockRes
+          : [];
         const stockSanitized: StockTimelineEntry[] = stockRaw
           .filter(Boolean)
           .map((tx: any, index: number) => ({
@@ -222,8 +250,8 @@ export default function Dashboard() {
         const productListRaw = Array.isArray(productRes?.data)
           ? productRes.data
           : Array.isArray(productRes)
-            ? productRes
-            : [];
+          ? productRes
+          : [];
         setProducts(productListRaw);
       } catch (err) {
         console.error("โหลดแดชบอร์ดไม่สำเร็จ", err);
@@ -241,7 +269,7 @@ export default function Dashboard() {
     return () => {
       ignore = true;
     };
-  }, [filter, selectedDate]);
+  }, [filter, selectedDate, isAdmin, authChecked]);
 
   const currentRange = useMemo(() => getRangeBounds(filter, selectedDate), [filter, selectedDate]);
   const previousRange = useMemo(
@@ -267,7 +295,13 @@ export default function Dashboard() {
 
   const topProducts = useMemo(() => {
     const base = summaryData?.topProducts?.[filter] || [];
-    return base.slice(0, 5).map((item: any, idx: number) => ({
+    const filtered = base.filter((item: any) => {
+      const qty = sanitizeNumber(item?.quantity);
+      const revenue = sanitizeNumber(item?.netRevenue ?? item?.revenue);
+      return qty > 0 || revenue > 0;
+    });
+
+    return filtered.slice(0, 5).map((item: any, idx: number) => ({
       rank: idx + 1,
       name: item?.name || item?.productName || "-",
       quantity: sanitizeNumber(item?.quantity),
@@ -287,11 +321,18 @@ export default function Dashboard() {
         const iso = entry?.formattedDate?.iso || entry?.date;
         if (!iso) return null;
         const date = toBangkokDate(new Date(iso));
-        const label =
-          filter === "daily"
-            ? date.toLocaleTimeString("th-TH", { hour: "2-digit" })
-            : date.toLocaleDateString("th-TH", { day: "2-digit", month: "short" });
-        const sortValue = filter === "daily" ? date.getHours() : date.getTime();
+        let label: string;
+        let sortValue: number;
+        if (filter === "daily") {
+          label = date.toLocaleTimeString("th-TH", { hour: "2-digit" });
+          sortValue = date.getHours();
+        } else if (filter === "yearly") {
+          label = date.toLocaleDateString("th-TH", { month: "short", year: "numeric" });
+          sortValue = date.getTime();
+        } else {
+          label = date.toLocaleDateString("th-TH", { day: "2-digit", month: "short" });
+          sortValue = date.getTime();
+        }
         const value = sanitizeNumber(entry?.netSales ?? entry?.totalSales);
         return { label, value, sortValue };
       })
@@ -314,6 +355,9 @@ export default function Dashboard() {
           const hour = date.getHours();
           label = `${String(hour).padStart(2, "0")}:00`;
           sortValue = hour;
+        } else if (filter === "yearly") {
+          label = date.toLocaleDateString("th-TH", { month: "short", year: "numeric" });
+          sortValue = date.getTime();
         } else {
           label = date.toLocaleDateString("th-TH", {
             day: "2-digit",
@@ -370,43 +414,41 @@ export default function Dashboard() {
     });
   }, [purchaseOrders, previousRangeKey]);
 
-  const purchaseExpense = useMemo(
-    () =>
-      filteredPurchaseOrders.reduce(
-        (sum, po) => sum + resolvePurchaseTotal(po),
-        0
-      ),
-    [filteredPurchaseOrders]
+  const poPieEntries = useMemo(() => {
+    const supplierMap = new Map<string, number>();
+    filteredPurchaseOrders.forEach((po) => {
+      const value = resolveApprovedPurchaseTotal(po);
+      if (value <= 0) return;
+      const supplier = po.supplierName || "ไม่ระบุ";
+      supplierMap.set(supplier, (supplierMap.get(supplier) || 0) + value);
+    });
+    return Array.from(supplierMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [filteredPurchaseOrders]);
+
+  const poPie = useMemo(() => poPieEntries.slice(0, 8), [poPieEntries]);
+
+  const poExpenseInRange = useMemo(
+    () => poPieEntries.reduce((sum, entry) => sum + entry.value, 0),
+    [poPieEntries]
   );
 
-  const previousPurchaseExpense = useMemo(
+  const previousPoExpenseInRange = useMemo(
     () =>
       previousPurchaseOrders.reduce(
-        (sum, po) => sum + resolvePurchaseTotal(po),
+        (sum, po) => sum + resolveApprovedPurchaseTotal(po),
         0
       ),
     [previousPurchaseOrders]
   );
 
-  const purchaseExpenseChange = useMemo(() => {
-    if (previousPurchaseExpense === 0) return null;
+  const poExpenseChange = useMemo(() => {
+    if (previousPoExpenseInRange === 0) return null;
     return (
-      ((purchaseExpense - previousPurchaseExpense) / previousPurchaseExpense) * 100
+      ((poExpenseInRange - previousPoExpenseInRange) / previousPoExpenseInRange) * 100
     );
-  }, [purchaseExpense, previousPurchaseExpense]);
-
-  const purchasePieData = useMemo(() => {
-    const supplierMap = new Map<string, number>();
-    filteredPurchaseOrders.forEach((po) => {
-      const value = resolvePurchaseTotal(po);
-      if (value <= 0) return;
-      supplierMap.set(po.supplierName, (supplierMap.get(po.supplierName) || 0) + value);
-    });
-    return Array.from(supplierMap.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
-  }, [filteredPurchaseOrders]);
+  }, [poExpenseInRange, previousPoExpenseInRange]);
 
   const timelineItems = useMemo(() => {
     return [...stockTransactions]
@@ -422,11 +464,11 @@ export default function Dashboard() {
           : null;
         const timeText = date
           ? date.toLocaleString("th-TH", {
-            day: "2-digit",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
+              day: "2-digit",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
           : "ไม่ระบุเวลา";
         const direction = (item.type || "").toUpperCase();
         const isOutgoing = /(SALE|OUT|REMOVE|ADJUSTMENT-NEG|REDUCE)/.test(direction);
@@ -452,8 +494,8 @@ export default function Dashboard() {
     typeof changes?.netSalesChange === "number"
       ? changes.netSalesChange
       : typeof changes?.totalSalesChange === "number"
-        ? changes.totalSalesChange
-        : null;
+      ? changes.totalSalesChange
+      : null;
   const profitChange =
     typeof changes?.totalProfitChange === "number" ? changes.totalProfitChange : null;
   const quantityChange =
@@ -477,8 +519,8 @@ export default function Dashboard() {
     {
       id: "po-expense",
       title: "ค่าใช้จ่ายใบสั่งซื้อ",
-      value: formatCurrency(purchaseExpense),
-      change: purchaseExpenseChange,
+      value: formatCurrency(poExpenseInRange),
+      change: poExpenseChange,
       changeText: "เทียบช่วงก่อนหน้า",
       footnote: "รวมใบสั่งซื้อในช่วงที่เลือก",
     },
@@ -497,37 +539,69 @@ export default function Dashboard() {
       maximumFractionDigits: 2,
     })}`;
 
-  return (
-    <div className="dashboard-page">
-      <div className="dashboard-heading">
-        <h1>📊 ภาพรวมธุรกิจ</h1>
-        <div className="dashboard-controls">
-          <div className="filters">
-            {(["daily", "weekly", "monthly"] as RangeKey[]).map((type) => (
-              <button
-                key={type}
-                type="button"
-                className={filter === type ? "active" : ""}
-                onClick={() => setFilter(type)}
-              >
-                {type === "daily"
-                  ? "รายวัน"
-                  : type === "weekly"
-                    ? "รายสัปดาห์"
-                    : "รายเดือน"}
-              </button>
-            ))}
-          </div>
-          <DatePicker
-            selected={selectedDate}
-            onChange={(date) => date && setSelectedDate(date)}
-            locale={th}
-            dateFormat={filter === "monthly" ? "MMMM yyyy" : "dd MMMM yyyy"}
-            showMonthYearPicker={filter === "monthly"}
-            className="date-picker"
-          />
+  if (!authChecked) {
+    return (
+      <div className="display">
+        <div className="dashboard-page">
+          <div className="dashboard-loading">กำลังตรวจสอบสิทธิ์...</div>
         </div>
       </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="display">
+        <div className="dashboard-page">
+          <div className="dashboard-guard-message">
+            หน้านี้สำหรับผู้ดูแลระบบเท่านั้น กรุณาติดต่อผู้ดูแลเพื่อขอสิทธิ์เข้าถึง
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="display">
+      <div className="dashboard-page">
+        <div className="dashboard-heading">
+          <h1>📊 ภาพรวมธุรกิจ</h1>
+          <div className="dashboard-controls">
+            <div className="filters">
+              {(["daily", "weekly", "monthly", "yearly"] as RangeKey[]).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  className={filter === type ? "active" : ""}
+                  onClick={() => setFilter(type)}
+                >
+                  {type === "daily"
+                    ? "รายวัน"
+                    : type === "weekly"
+                    ? "รายสัปดาห์"
+                    : type === "monthly"
+                    ? "รายเดือน"
+                    : "รายปี"}
+                </button>
+              ))}
+            </div>
+            <DatePicker
+              selected={selectedDate}
+              onChange={(date) => date && setSelectedDate(date)}
+              locale={th}
+              dateFormat={
+                filter === "monthly"
+                  ? "MMMM yyyy"
+                  : filter === "yearly"
+                  ? "yyyy"
+                  : "dd MMMM yyyy"
+              }
+              showMonthYearPicker={filter === "monthly"}
+              showYearPicker={filter === "yearly"}
+              className="date-picker"
+            />
+          </div>
+        </div>
 
       {error && <div className="dashboard-error">{error}</div>}
 
@@ -537,7 +611,7 @@ export default function Dashboard() {
           <DashboardTopList
             items={topProducts}
             loading={loading}
-            emptyMessage="ยังไม่มีข้อมูลสินค้าขายดีในช่วงนี้"
+            emptyMessage="ยังไม่มีการขายสินค้าในช่วงนี้"
           />
         </section>
 
@@ -568,7 +642,7 @@ export default function Dashboard() {
           <h2>สัดส่วนค่าใช้จ่ายใบสั่งซื้อ</h2>
           <span className="card-subtitle">แยกตามซัพพลายเออร์</span>
           <DashboardPieChartCard
-            data={purchasePieData}
+            data={poPie}
             loading={loading}
             emptyMessage="ยังไม่มีค่าใช้จ่ายใบสั่งซื้อในช่วงนี้"
             colors={COLORS}
@@ -600,7 +674,9 @@ export default function Dashboard() {
             valueFormatter={formatPaymentValue}
           />
         </section>
+        
       </div>
+    </div>
     </div>
   );
 }

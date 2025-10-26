@@ -3,34 +3,56 @@ import axios from "axios";
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 // ✅ ฟังก์ชันสร้างการชำระเงิน (ขาย / คืน)
+const payloadFromToken = () => {
+    const t = localStorage.getItem("token") || localStorage.getItem("authToken") || "";
+    try {
+        if (!t || !t.includes(".")) return null;
+        return JSON.parse(atob(t.split(".")[1]));
+    } catch { return null; }
+};
+
 export const createPayment = async (paymentData: {
-    saleId: string;
-    employeeName: string;
+    saleId?: string;
+    employeeName?: string;
     paymentMethod: "เงินสด" | "โอนเงิน" | "บัตรเครดิต" | "QR Code";
     amountReceived: number;
-    amount: number; // ✅ ยอดหลังหักส่วนลดแล้ว
-    change: number;
-    discount?: number; // ✅ เพิ่มส่วนลด
-    items: Array<{
-        barcode: string;
-        name: string;
-        price: number;
-        quantity: number;
-        subtotal: number;
-        profit?: number;
-        discount?: number; // ✅ เผื่อกรณีมีส่วนลดต่อสินค้า
-    }>;
+    amount?: number;
+    change?: number;
+    discount?: number;
+    items: Array<{ barcode: string; name: string; price: number; quantity?: number; totalQuantity?: number; subtotal?: number; }>;
     isReturn?: boolean;
     reason?: string;
 }) => {
     try {
-        const token = localStorage.getItem("token");
+        const token = localStorage.getItem("token") || localStorage.getItem("authToken") || "";
+        const payload = payloadFromToken();
 
-        const response = await axios.post(`${API_BASE_URL}/payment/create`, paymentData, {
-            headers: { Authorization: `Bearer ${token}` },
+        // ✅ เติมชื่อพนักงานให้แน่
+        const safeEmployeeName =
+            paymentData.employeeName ||
+            (payload?.username ?? payload?.name ?? payload?.email ?? "Employee");
+
+        // ✅ เติม saleId ถ้าไม่ได้ส่งมา
+        const safeSaleId = paymentData.saleId || `SALE-${Date.now()}`;
+
+        // ✅ map items ให้มี quantity & subtotal เสมอ (เผื่อคุณส่ง totalQuantity มา)
+        const fixedItems = (paymentData.items || []).map((it) => {
+            const qty = it.quantity ?? it.totalQuantity ?? 1;
+            const sub = it.subtotal ?? Number(it.price || 0) * Number(qty || 0);
+            return { ...it, quantity: qty, subtotal: sub };
         });
 
-        return response.data;
+        const body = {
+            ...paymentData,
+            saleId: safeSaleId,
+            employeeName: safeEmployeeName,
+            items: fixedItems,
+        };
+
+        const res = await axios.post(`${API_BASE_URL}/payment/create`, body, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        return res.data;
     } catch (error) {
         console.error("❌ createPayment Error:", error);
         return { success: false, message: "เกิดข้อผิดพลาดในการสร้างการชำระเงิน" };

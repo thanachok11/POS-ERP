@@ -5,26 +5,16 @@ const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 // ฟังก์ชันเพื่อดึงรายการสินค้าทั้งหมด
 export const getProducts = async () => {
-  const token = localStorage.getItem('token'); // ดึง token จาก localStorage
+  const token = localStorage.getItem('token');
+  if (!token) throw new Error('No token found');
 
-  if (!token) {
-    throw new Error('No token found');
-  }
-
-  try {
-    // ส่ง token ไปใน Authorization header
-    const response = await axios.get(`${API_BASE_URL}/products/Product`, {
-      headers: {
-        'Authorization': `Bearer ${token}` // ใส่ token ใน header
-      }
-    });
-
-    return response.data; // ส่งข้อมูลที่ได้จาก API กลับมา
-  } catch (error) {
-    console.error("Error fetching products:", error);
-    throw error; // ส่งข้อผิดพลาดออกไปหากเกิดการผิดพลาด
-  }
+  const response = await axios.get(
+    `${API_BASE_URL}/products/Product?onlyAvailable=true`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return response.data;
 };
+
 
 // ฟังก์ชันเพื่อดึงสินค้าโดยใช้ barcode
 export const getProductByBarcode = async (barcode: string) => {

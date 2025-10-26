@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import Discount from "../models/Discount";
-import { verifyToken } from "../utils/auth"; // ✅ ใช้รูปแบบเดียวกับ registerEmployee
+import { verifyToken } from "../utils/auth";
 
 // ✅ สร้างรหัสส่วนลดใหม่ (เฉพาะ admin / manager)
 export const createDiscount = async (req: Request, res: Response): Promise<void> => {
@@ -42,6 +42,7 @@ export const createDiscount = async (req: Request, res: Response): Promise<void>
             }
 
             const discount = await Discount.create({
+                userId: decoded.userId,
                 code: code.toUpperCase(),
                 type,
                 value,
@@ -69,14 +70,29 @@ export const createDiscount = async (req: Request, res: Response): Promise<void>
 };
 
 // ✅ ดึงรหัสส่วนลดทั้งหมด
-export const getDiscounts = async (_: Request, res: Response): Promise<void> => {
+export const getDiscounts = async (req: Request, res: Response): Promise<void> => {
     try {
-        const discounts = await Discount.find().sort({ createdAt: -1 });
-        res.status(200).json({
-            success: true,
-            message: "ดึงรหัสส่วนลดทั้งหมดสำเร็จ",
-            data: discounts,
-        });
+        const token = req.headers["authorization"]?.split(" ")[1];
+        if (!token) {
+            res.status(401).json({ success: false, message: "No token provided" });
+            return;
+        }
+
+        const decoded = verifyToken(token);
+        if (typeof decoded !== "string" && "userId" in decoded) {
+            const userId = decoded.userId;
+
+            // ✅ ดึงเฉพาะส่วนลดของ user นี้
+            const discounts = await Discount.find({ userId }).sort({ createdAt: -1 });
+
+            res.status(200).json({
+                success: true,
+                message: "ดึงรหัสส่วนลดของผู้ใช้สำเร็จ",
+                data: discounts,
+            });
+        } else {
+            res.status(401).json({ success: false, message: "Invalid token" });
+        }
     } catch (error) {
         res.status(500).json({
             success: false,

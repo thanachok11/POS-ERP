@@ -69,7 +69,7 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) => {
                             วันที่:{" "}
                             {formatThaiDateTime(payment?.createdAt ?? receipt.timestamp)}
                         </p>
-                        <p>พนักงาน: {receipt.employeeName ?? "ไม่ระบุ"}</p>
+                        <p>พนักงาน: {receipt.employeeName ?? "Employee"}</p>
                         <p>
                             วิธีชำระ: {payment?.paymentMethod ?? receipt.paymentMethod}
                         </p>

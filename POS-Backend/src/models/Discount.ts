@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IDiscount extends Document {
+    userId?: mongoose.Types.ObjectId;
     code: string;                // รหัสส่วนลด เช่น SAVE10
     type: "percent" | "baht";    // ประเภทส่วนลด
     value: number;               // มูลค่าส่วนลด
@@ -12,6 +13,7 @@ export interface IDiscount extends Document {
 }
 
 const DiscountSchema = new Schema<IDiscount>({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     code: { type: String, required: true, unique: true },
     type: { type: String, enum: ["percent", "baht"], required: true },
     value: { type: Number, required: true },

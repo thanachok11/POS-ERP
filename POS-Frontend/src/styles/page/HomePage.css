@@ -3,6 +3,7 @@
 }
 
 
+
 .home-container {
   display: flex;
   align-items: center;
@@ -52,21 +53,8 @@
   margin-top: 80px;
 }
 
-.home-gradient {
-  min-height: 100vh;
-  padding: 2rem 0 3rem;
-  background:
-    radial-gradient(115% 85% at 5% -10%, rgba(244, 114, 182, 0.28), transparent 62%),
-    radial-gradient(120% 80% at 95% 0%, rgba(14, 165, 233, 0.26), transparent 68%),
-    radial-gradient(90% 70% at 50% 105%, rgba(252, 211, 77, 0.22), transparent 70%),
-    linear-gradient(130deg, #fef9c3 0%, #e0f2fe 45%, #fce7f3 100%);
-  background-color: #f9fbff;
-}
-
 .dashboard-overview {
   position: relative;
-  max-width: var(--container-width);
-  margin: 0 auto;
   padding: 1.6rem 1.8rem 2rem;
   display: flex;
   flex-direction: column;
@@ -103,6 +91,9 @@
   padding: 1.1rem 1.35rem 1.4rem;
   border: 1px solid rgba(224, 242, 254, 0.7);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 .card-like::before {
@@ -126,7 +117,7 @@
 
 .section-title {
   font-weight: 700;
-  font-size: 1.08rem;
+  font-size: 1.2rem;
   margin-bottom: .7rem;
   color: #0f172a;
   display: flex;
@@ -146,7 +137,7 @@
 .dash-grid {
   display: grid;
   grid-template-columns: 1.25fr 1fr 1fr 1fr;
-  grid-template-rows: auto 280px 100px 280px;
+  grid-template-rows: auto minmax(360px, auto) 120px minmax(340px, auto);
   grid-template-areas:
     "top5 top5 top5 top5"
     "receipt receipt pie1 pie2"
@@ -271,6 +262,30 @@
 .pie-legend-list .value {
   font-weight: 700;
   color: #0f172a;
+}
+
+.chart-rect,
+.pie-rect {
+  width: 100%;
+  position: relative;
+  overflow: visible;
+}
+
+.chart-rect {
+  min-height: 320px;
+}
+
+.pie-rect {
+  min-height: 300px;
+}
+
+.area-receipt {
+  padding-bottom: 1.8rem;
+}
+
+.area-pie1,
+.area-pie2 {
+  padding-bottom: 1.6rem;
 }
 
 .pie-legend-scroll::-webkit-scrollbar {
@@ -520,12 +535,28 @@
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.85), rgba(224, 242, 254, 0.7));
   border-radius: 18px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .table-scroll.tall {
-  max-height: 280px;
+  max-height: 260px;
   overflow-y: auto;
+  padding-right: 8px;
+}
+
+.table-scroll.tall::-webkit-scrollbar {
+  width: 6px;
+}
+
+.table-scroll.tall::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.6), rgba(59, 130, 246, 0.6));
+  border-radius: 999px;
+}
+
+.table-scroll.tall::-webkit-scrollbar-track {
+  background: rgba(226, 232, 240, 0.4);
+  border-radius: 999px;
 }
 
 .timeline::-webkit-scrollbar {
@@ -546,7 +577,7 @@
 @media (max-width: 1100px) {
   .dash-grid {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 320px 320px 320px repeat(4, 90px) 300px 300px;
+    grid-template-rows: auto 360px 360px 340px repeat(4, 110px) 320px 320px;
     grid-template-areas:
       "top5"
       "receipt"

@@ -101,12 +101,18 @@ const App: React.FC = () => {
       "/expired": "สินค้าเหลือน้อย/สินค้าหมด",
       "/setting/employee": "ตั้งค่าพนักงาน",
       "/suppliers": "ผู้ผลิต",
+      "/create-purchase-order": "สร้างคำสั่งซื้อ",
       "/purchase-orders": "คำสั่งซื้อ",
       "/stockTransaction": "ประวัติการเคลื่อนไหวของคลังสินค้า",
       "/discount": "จัดการส่วนลด",
       "/qc": "ตรวจสอบสินค้า (QC)",
       "/warehouse": "จัดการคลังสินค้า",
       "/refund": "คืนสินค้า",
+      "/user": "จัดการผู้ใช้งาน",
+      "/stocklots": "จัดการล็อตสินค้า",
+      "/products": "จัดการสินค้า",
+      "/": "หน้าแรก",
+      "/dashboard": "หน้าแรก",
     };
 
     const menuName = pathToMenu[location.pathname];

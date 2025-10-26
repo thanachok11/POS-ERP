@@ -1,10 +1,27 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import Receipt from "../models/Receipt";
 import Stock from "../models/Stock";
+import User from "../models/User";
+import Employee from "../models/Employee";
+import { verifyToken } from "../utils/auth";
+
+// ======================= Helper: resolve ownerId =======================
+const getOwnerId = async (userId: string): Promise<string> => {
+    let user = await User.findById(userId);
+    if (!user) user = await Employee.findById(userId);
+    if (!user) throw new Error("User not found");
+
+    if (user.role === "admin") return user._id.toString();
+    if (user.role === "employee") {
+        if (!user.adminId) throw new Error("Employee does not have admin assigned");
+        return user.adminId.toString();
+    }
+    throw new Error("Invalid user role");
+};
 
 // ======================= Helper Functions =======================
 
-// ✅ แปลงวันที่ให้อยู่ในรูปแบบไทย + ISO
 function formatThaiDate(date: Date) {
     return {
         thai: date.toLocaleString("th-TH", {
@@ -19,7 +36,6 @@ function formatThaiDate(date: Date) {
     };
 }
 
-// ✅ เติมข้อมูลชั่วโมงที่ไม่มียอดขาย (ให้เป็น 0)
 function fillHours(data: any[], start: Date) {
     const hours = Array.from({ length: 24 }, (_, i) => i);
     return hours.map((h) => {
@@ -39,74 +55,63 @@ function fillHours(data: any[], start: Date) {
 }
 
 // ======================= Main Controller =======================
-export const getDashboardStats = async (
-    req: Request,
-    res: Response
-): Promise<void> => {
+export const getDashboardStats = async (req: Request, res: Response): Promise<void> => {
     try {
-        // ✅ แปลงวันที่จาก query โดยไม่บวก offset ซ้ำ
-        const inputDate = req.query.date
-            ? new Date(req.query.date as string)
-            : new Date();
-        const filter = (req.query.filter as string) || "daily";
+        // ✅ auth
+        const token = req.header("Authorization")?.split(" ")[1];
+        if (!token) { res.status(401).json({ success: false, message: "Unauthorized" }); return; }
+        const decoded = verifyToken(token);
+        if (typeof decoded === "string" || !("userId" in decoded)) {
+            res.status(401).json({ success: false, message: "Invalid token" }); return;
+        }
+        const ownerId = await getOwnerId(decoded.userId);
+        const ownerObjectId = new mongoose.Types.ObjectId(ownerId);
 
-        // ✅ แปลงเป็นเวลาไทย (โดยไม่ขยับวัน)
+        // ✅ date
+        const inputDate = req.query.date ? new Date(req.query.date as string) : new Date();
+        const _filter = (req.query.filter as string) || "daily";
         const localDate = new Date(
             new Date(inputDate).toLocaleString("en-US", { timeZone: "Asia/Bangkok" })
         );
 
-        // ===== กำหนดช่วงเวลา =====
-        const startOfDay = new Date(localDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(localDate);
-        endOfDay.setHours(23, 59, 59, 999);
+        // ranges
+        const startOfDay = new Date(localDate); startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(localDate); endOfDay.setHours(23, 59, 59, 999);
 
         const startOfWeek = new Date(localDate);
         startOfWeek.setDate(localDate.getDate() - localDate.getDay());
+        // ทำให้จันทร์เป็นวันเริ่ม
+        const dowMon0 = (localDate.getDay() + 6) % 7; // อา=0 → 6, จ=1 → 0
+        startOfWeek.setDate(localDate.getDate() - dowMon0);
         startOfWeek.setHours(0, 0, 0, 0);
         const endOfWeek = new Date(startOfWeek);
         endOfWeek.setDate(startOfWeek.getDate() + 6);
         endOfWeek.setHours(23, 59, 59, 999);
 
-        const startOfMonth = new Date(
-            localDate.getFullYear(),
-            localDate.getMonth(),
-            1
-        );
-        const endOfMonth = new Date(
-            localDate.getFullYear(),
-            localDate.getMonth() + 1,
-            0,
-            23,
-            59,
-            59,
-            999
-        );
+        const startOfMonth = new Date(localDate.getFullYear(), localDate.getMonth(), 1);
+        const endOfMonth = new Date(localDate.getFullYear(), localDate.getMonth() + 1, 0, 23, 59, 59, 999);
 
-        // ===== ดึงข้อมูลยอดขายหลัก =====
+        // ===== main aggregates (scoped by owner) =====
         const [dailyRaw, weeklyData, monthlyData] = await Promise.all([
-            aggregateSales(startOfDay, endOfDay, "hour"),
-            aggregateSales(startOfWeek, endOfWeek, "day"),
-            aggregateSales(startOfMonth, endOfMonth, "day"),
+            aggregateSales(startOfDay, endOfDay, "hour", ownerObjectId),
+            aggregateSales(startOfWeek, endOfWeek, "day", ownerObjectId),
+            aggregateSales(startOfMonth, endOfMonth, "day", ownerObjectId),
         ]);
 
         const dailyData = fillHours(dailyRaw, startOfDay);
 
-        // ===== สรุปยอดขาย =====
         const summary = {
             daily: makeSummary(dailyData),
             weekly: makeSummary(weeklyData),
             monthly: makeSummary(monthlyData),
         };
 
-        // ===== รวมสินค้าขายดี =====
         const topProducts = {
             daily: getTopProducts(dailyRaw),
             weekly: getTopProducts(weeklyData),
             monthly: getTopProducts(monthlyData),
         };
 
-        // ✅ แทรกสินค้าขายดีของวันในแต่ละชั่วโมง
         if (topProducts.daily.length > 0) {
             const top = topProducts.daily[0];
             dailyData.forEach((d) => {
@@ -119,39 +124,27 @@ export const getDashboardStats = async (
             });
         }
 
-        // ===== ยอดขายแยกตามพนักงาน =====
         const byEmployee = {
-            daily: await aggregateByEmployee(startOfDay, endOfDay),
-            weekly: await aggregateByEmployee(startOfWeek, endOfWeek),
-            monthly: await aggregateByEmployee(startOfMonth, endOfMonth),
+            daily: await aggregateByEmployee(startOfDay, endOfDay, ownerObjectId),
+            weekly: await aggregateByEmployee(startOfWeek, endOfWeek, ownerObjectId),
+            monthly: await aggregateByEmployee(startOfMonth, endOfMonth, ownerObjectId),
         };
 
-        // ===== ช่วงก่อนหน้า =====
-        const prevDayStart = new Date(startOfDay);
-        prevDayStart.setDate(prevDayStart.getDate() - 1);
-        const prevWeekStart = new Date(startOfWeek);
-        prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-        const prevMonthStart = new Date(startOfMonth);
-        prevMonthStart.setMonth(prevMonthStart.getMonth() - 1);
+        // previous ranges
+        const prevDayStart = new Date(startOfDay); prevDayStart.setDate(prevDayStart.getDate() - 1);
+        const prevWeekStart = new Date(startOfWeek); prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+        const prevMonthStart = new Date(startOfMonth); prevMonthStart.setMonth(prevMonthStart.getMonth() - 1);
 
-        const prevDayData = makeSummary(
-            (await aggregateSales(prevDayStart, startOfDay, "hour")) || []
-        );
-        const prevWeekData = makeSummary(
-            (await aggregateSales(prevWeekStart, startOfWeek, "day")) || []
-        );
-        const prevMonthData = makeSummary(
-            (await aggregateSales(prevMonthStart, startOfMonth, "day")) || []
-        );
+        const prevDayData = makeSummary(await aggregateSales(prevDayStart, startOfDay, "hour", ownerObjectId));
+        const prevWeekData = makeSummary(await aggregateSales(prevWeekStart, startOfWeek, "day", ownerObjectId));
+        const prevMonthData = makeSummary(await aggregateSales(prevMonthStart, startOfMonth, "day", ownerObjectId));
 
-        // ===== การเปลี่ยนแปลง =====
         const changes = {
             daily: calcChange(summary.daily, prevDayData),
             weekly: calcChange(summary.weekly, prevWeekData),
             monthly: calcChange(summary.monthly, prevMonthData),
         };
 
-        // ===== ส่งข้อมูลกลับ =====
         res.status(200).json({
             success: true,
             data: {
@@ -166,158 +159,170 @@ export const getDashboardStats = async (
         });
     } catch (error) {
         console.error("Dashboard Error:", error);
-        res.status(500).json({
-            success: false,
-            message: "เกิดข้อผิดพลาดในการดึงข้อมูล Dashboard",
-        });
+        res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการดึงข้อมูล Dashboard" });
     }
 };
 
-// ======================= Aggregate Sales =======================
+// ======================= Aggregate Sales (ตามบิลสุทธิ-ต้นทุน) =======================
 export async function aggregateSales(
     start: Date,
     end: Date,
-    groupBy: "hour" | "day"
+    groupBy: "hour" | "day",
+    ownerObjectId: mongoose.Types.ObjectId
 ) {
-    const stocks = await Stock.find({}).lean();
+    // ดึงราคาทุนเฉพาะของ owner
+    const stocks = await Stock.find({ userId: ownerObjectId }).lean();
     const stockMap = new Map(
         stocks.map((s) => [
             s.barcode,
-            { costPrice: s.costPrice || 0, salePrice: s.salePrice || 0 },
+            { costPrice: Number(s.costPrice || 0), salePrice: Number(s.salePrice || 0) },
         ])
     );
 
-    const receipts = await Receipt.aggregate([
-        { $match: { timestamp: { $gte: start, $lte: end } } },
-        { $unwind: "$items" },
-        {
-            $group: {
-                _id: {
-                    bucket:
-                        groupBy === "hour"
-                            ? {
-                                hour: {
-                                    $hour: { date: "$timestamp", timezone: "Asia/Bangkok" },
-                                },
-                            }
-                            : {
-                                year: {
-                                    $year: { date: "$timestamp", timezone: "Asia/Bangkok" },
-                                },
-                                month: {
-                                    $month: { date: "$timestamp", timezone: "Asia/Bangkok" },
-                                },
-                                day: {
-                                    $dayOfMonth: {
-                                        date: "$timestamp",
-                                        timezone: "Asia/Bangkok",
-                                    },
-                                },
-                            },
-                    product: "$items.name",
-                    barcode: "$items.barcode",
-                },
-                totalSales: { $sum: "$items.subtotal" },
-                totalQuantity: { $sum: "$items.quantity" },
-            },
-        },
-        {
-            $group: {
-                _id: "$_id.bucket",
-                totalSales: { $sum: "$totalSales" },
-                totalQuantity: { $sum: "$totalQuantity" },
-                products: {
-                    $push: {
-                        name: "$_id.product",
-                        barcode: "$_id.barcode",
-                        quantity: "$totalQuantity",
-                        revenue: "$totalSales",
-                    },
-                },
-            },
-        },
-        { $sort: { _id: 1 } },
-    ]);
+    // ใบเสร็จเฉพาะของ owner
+    const receipts = await Receipt.find({
+        userId: ownerObjectId,
+        timestamp: { $gte: start, $lte: end },
+    }).lean();
 
-    return receipts.map((r) => {
-        let date: Date;
+    type BucketKey = { hour: number } | { year: number; month: number; day: number };
 
-        if (groupBy === "hour" && (r._id as any)?.hour !== undefined) {
-            date = new Date(start);
-            date.setHours((r._id as any).hour, 0, 0, 0);
-        } else if (groupBy === "day" && (r._id as any)?.year) {
-            const { year, month, day } = r._id as any;
-            date = new Date(year, month - 1, day);
-        } else {
-            date = new Date();
+    const buckets = new Map<
+        string,
+        {
+            key: BucketKey;
+            totalSales: number;
+            netSales: number;
+            totalQuantity: number;
+            totalProfit: number;
+            products: Map<string, { name: string; barcode: string; quantity: number; revenue: number }>;
         }
+    >();
 
-        // ✅ คำนวณกำไร
-        let totalProfit = 0;
-        if (Array.isArray(r.products)) {
-            r.products.forEach((p: any) => {
-                const stock = stockMap.get(p.barcode);
-                if (stock) {
-                    const profit = (stock.salePrice - stock.costPrice) * p.quantity;
-                    totalProfit += profit;
-                }
+    const makeKey = (d: Date): { key: BucketKey; str: string } => {
+        if (groupBy === "hour") {
+            const hour = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Bangkok" })).getHours();
+            return { key: { hour }, str: `h:${hour}` };
+        } else {
+            const loc = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+            return {
+                key: { year: loc.getFullYear(), month: loc.getMonth() + 1, day: loc.getDate() },
+                str: `d:${loc.getFullYear()}-${loc.getMonth() + 1}-${loc.getDate()}`,
+            };
+        }
+    };
+
+    for (const r of receipts) {
+        const { key, str } = makeKey(r.timestamp as Date);
+        if (!buckets.has(str)) {
+            buckets.set(str, {
+                key,
+                totalSales: 0,
+                netSales: 0,
+                totalQuantity: 0,
+                totalProfit: 0,
+                products: new Map(),
             });
         }
+        const b = buckets.get(str)!;
 
-        // ✅ หาสินค้าขายดีที่สุดในแต่ละ bucket
-        let bestSeller = { name: "-", quantity: 0, revenue: 0, barcode: "" };
-        if (Array.isArray(r.products) && r.products.length > 0) {
-            bestSeller = r.products.reduce(
-                (best: any, p: any) => (p.quantity > best.quantity ? p : best),
-                bestSeller
-            );
+        const sign = r.isReturn ? -1 : 1;
+
+        let billSubtotal = 0;
+        let billQty = 0;
+        let billCost = 0;
+
+        for (const it of r.items || []) {
+            const qty = Number(it.quantity || 0);
+            const subtotal = Number(it.subtotal || 0);
+            billSubtotal += subtotal;
+            billQty += qty;
+
+            const itemCost =
+                it.costPrice != null
+                    ? Number(it.costPrice)
+                    : Number(stockMap.get(it.barcode)?.costPrice || 0);
+            billCost += itemCost * qty;
+
+            const pKey = it.barcode || it.name;
+            if (!b.products.has(pKey)) {
+                b.products.set(pKey, {
+                    name: it.name,
+                    barcode: it.barcode || "-",
+                    quantity: 0,
+                    revenue: 0,
+                });
+            }
+            const p = b.products.get(pKey)!;
+            p.quantity += qty * sign;
+            p.revenue += subtotal * sign;
         }
 
-        return {
-            totalSales: r.totalSales,
-            totalQuantity: r.totalQuantity,
-            netSales: r.totalSales,
-            totalProfit,
-            bestSeller,
-            products: r.products || [],
-            formattedDate: formatThaiDate(date),
-            hour: (r._id as any).hour ?? null,
-        };
-    });
+        const billNet = Number(r.totalPrice || 0);
+        const billProfit = (billNet - billCost) * sign;
+
+        b.totalSales += billSubtotal * sign;
+        b.netSales += billNet * sign;
+        b.totalQuantity += billQty * sign;
+        b.totalProfit += billProfit;
+    }
+
+    const output = Array.from(buckets.values())
+        .sort((a, b) => (JSON.stringify(a.key) < JSON.stringify(b.key) ? -1 : 1))
+        .map((b) => {
+            let date: Date;
+            if ("hour" in b.key) {
+                date = new Date(start);
+                date.setHours(b.key.hour, 0, 0, 0);
+            } else {
+                const { year, month, day } = b.key;
+                date = new Date(year, month - 1, day);
+            }
+
+            const prodArr = Array.from(b.products.values());
+            const bestSeller =
+                prodArr.length > 0
+                    ? prodArr.reduce((best, p) => (p.quantity > best.quantity ? p : best), prodArr[0])
+                    : { name: "-", quantity: 0, revenue: 0, barcode: "" };
+
+            return {
+                totalSales: b.totalSales,
+                totalQuantity: b.totalQuantity,
+                netSales: b.netSales,
+                totalProfit: b.totalProfit,
+                bestSeller,
+                products: prodArr,
+                formattedDate: formatThaiDate(date),
+                hour: "hour" in b.key ? b.key.hour : null,
+            };
+        });
+
+    return output;
 }
 
 // ======================= Summary รวม =======================
 function makeSummary(data: any[]) {
-    const totalSales = data.reduce((s, d) => s + d.totalSales, 0);
-    const totalQuantity = data.reduce((s, d) => s + d.totalQuantity, 0);
-    const totalProfit = data.reduce((s, d) => s + d.totalProfit, 0);
-    const netSales = data.reduce((s, d) => s + d.netSales, 0);
-    return { totalSales, totalQuantity, totalProfit, netSales };
+    const totalSales = data.reduce((s, d) => s + Number(d.totalSales || 0), 0);
+    const netSales = data.reduce((s, d) => s + Number(d.netSales || 0), 0);
+    const totalQuantity = data.reduce((s, d) => s + Number(d.totalQuantity || 0), 0);
+    const totalProfit = data.reduce((s, d) => s + Number(d.totalProfit || 0), 0);
+    return { totalSales, netSales, totalQuantity, totalProfit };
 }
 
-// ===== คำนวณการเปลี่ยนแปลงจากช่วงก่อนหน้า =====
 function calcChange(current: any, previous: any) {
-    const getPercent = (cur: number, prev: number) =>
-        prev === 0 ? 0 : ((cur - prev) / prev) * 100;
-
+    const getPercent = (cur: number, prev: number) => (prev === 0 ? 0 : ((cur - prev) / prev) * 100);
     return {
         totalSalesChange: getPercent(current.totalSales, previous.totalSales),
         totalProfitChange: getPercent(current.totalProfit, previous.totalProfit),
-        totalQuantityChange: getPercent(
-            current.totalQuantity,
-            previous.totalQuantity
-        ),
+        totalQuantityChange: getPercent(current.totalQuantity, previous.totalQuantity),
     };
 }
 
 // ======================= Top Products =======================
 function getTopProducts(data: any[]) {
     const productMap: Record<string, any> = {};
-
-    // ✅ รวมสินค้าทั้งหมดจากทุก bucket (ทุกชั่วโมง/ทุกวัน)
     data.forEach((bucket) => {
         if (!Array.isArray(bucket.products)) return;
-
         bucket.products.forEach((product: any) => {
             const key = product.barcode || product.name;
             if (!productMap[key]) {
@@ -328,28 +333,21 @@ function getTopProducts(data: any[]) {
                     revenue: product.revenue,
                 };
             } else {
-                // รวมยอดขายสินค้าซ้ำ
                 productMap[key].quantity += product.quantity;
                 productMap[key].revenue += product.revenue;
             }
         });
     });
-
-    // ✅ แปลงเป็น array และเรียงลำดับตามยอดขาย
     const mergedProducts = Object.values(productMap)
         .sort((a: any, b: any) => b.quantity - a.quantity)
         .slice(0, 5);
-
-    // ✅ คืนค่ารายการ top 5
-    return mergedProducts.length > 0
-        ? mergedProducts
-        : [{ name: "-", quantity: 0, revenue: 0 }];
+    return mergedProducts.length > 0 ? mergedProducts : [{ name: "-", quantity: 0, revenue: 0 }];
 }
 
 // ======================= By Employee =======================
-async function aggregateByEmployee(start: Date, end: Date) {
+async function aggregateByEmployee(start: Date, end: Date, ownerObjectId: mongoose.Types.ObjectId) {
     const receipts = await Receipt.aggregate([
-        { $match: { timestamp: { $gte: start, $lte: end } } },
+        { $match: { userId: ownerObjectId, timestamp: { $gte: start, $lte: end } } }, // ✅ scope by owner
         {
             $group: {
                 _id: "$employeeName",

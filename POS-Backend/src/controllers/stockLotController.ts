@@ -1,59 +1,50 @@
 import { Request, Response } from "express";
-import StockLot from "../models/StockLot";
-import Stock from "../models/Stock";
-import StockTransaction from "../models/StockTransaction";
 import mongoose from "mongoose";
+import StockLot from "../models/StockLot";
 import Product from "../models/Product";
 import User from "../models/User";
 import Employee from "../models/Employee";
 import { verifyToken } from "../utils/auth";
 
-
-//หาค่า ownerId จาก userId (รองรับ admin / employee)
+/* =========================
+   🔑 resolve ownerId (string)
+========================= */
 const getOwnerId = async (userId: string): Promise<string> => {
-    let user = await User.findById(userId);
-    if (!user) {
-        user = await Employee.findById(userId);
-    }
+    let user: any = await User.findById(userId);
+    if (!user) user = await Employee.findById(userId);
     if (!user) throw new Error("User not found");
 
-    if (user.role === "admin") {
-        return user._id.toString();
-    } else if (user.role === "employee") {
+    if (user.role === "admin") return user._id.toString();
+    if (user.role === "employee") {
         if (!user.adminId) throw new Error("Employee does not have admin assigned");
         return user.adminId.toString();
-    } else {
-        throw new Error("Invalid user role");
     }
+    throw new Error("Invalid user role");
 };
 
+// ให้ query ติด owner ได้ทั้งกรณีเก็บเป็น string หรือ ObjectId
+const ownerScope = (ownerId: string) => ({
+    $or: [{ userId: ownerId }, { userId: new mongoose.Types.ObjectId(ownerId) }],
+});
+
 /* ===================================================
-   📦 ดึงข้อมูล StockLot ทั้งหมดของ user (owner)
+   📦 ดึง StockLot ทั้งหมดของ owner
 =================================================== */
 export const getStockLots = async (req: Request, res: Response): Promise<void> => {
     try {
-        // ✅ ตรวจสอบ token
         const token = req.header("Authorization")?.split(" ")[1];
-        if (!token) {
-            res.status(401).json({ success: false, message: "Unauthorized, no token provided" });
-            return;
-        }
+        if (!token) { res.status(401).json({ success: false, message: "Unauthorized, no token provided" }); return; }
 
         const decoded = verifyToken(token);
         if (typeof decoded === "string" || !("userId" in decoded)) {
-            res.status(401).json({ success: false, message: "Invalid token" });
-            return;
+            res.status(401).json({ success: false, message: "Invalid token" }); return;
         }
 
-        const ownerId = await getOwnerId(decoded.userId);
+        const ownerId = await getOwnerId((decoded as any).userId);
 
-        // ✅ ดึงข้อมูลล็อตทั้งหมดของ owner
-        const stockLots = await StockLot.find({ userId: ownerId })
-            .populate({
-                path: "productId",
-                populate: { path: "category" },
-            })
-            .populate("supplierId")
+        const stockLots = await StockLot.find(ownerScope(ownerId))
+            .populate({ path: "productId", populate: { path: "category" } })
+            .populate("supplierId", "companyName")
             .populate("location")
             .sort({ updatedAt: -1 });
 
@@ -65,26 +56,22 @@ export const getStockLots = async (req: Request, res: Response): Promise<void> =
 };
 
 /* ===================================================
-   🔎 กรองล็อตสินค้า
+   🔎 กรองล็อตสินค้า (ด้วย owner)
 =================================================== */
 export const filterStockLots = async (req: Request, res: Response): Promise<void> => {
     try {
         const token = req.header("Authorization")?.split(" ")[1];
-        if (!token) {
-            res.status(401).json({ success: false, message: "Unauthorized" });
-            return;
-        }
+        if (!token) { res.status(401).json({ success: false, message: "Unauthorized" }); return; }
 
         const decoded = verifyToken(token);
         if (typeof decoded === "string" || !("userId" in decoded)) {
-            res.status(401).json({ success: false, message: "Invalid token" });
-            return;
+            res.status(401).json({ success: false, message: "Invalid token" }); return;
         }
 
-        const ownerId = await getOwnerId(decoded.userId);
+        const ownerId = await getOwnerId((decoded as any).userId);
         const { status, qcStatus, warehouseId, supplierId } = req.query;
 
-        const filter: any = { userId: ownerId };
+        const filter: any = { ...ownerScope(ownerId) };
         if (status) filter.status = status;
         if (qcStatus) filter.qcStatus = qcStatus;
         if (warehouseId) filter.location = warehouseId;
@@ -92,7 +79,7 @@ export const filterStockLots = async (req: Request, res: Response): Promise<void
 
         const stockLots = await StockLot.find(filter)
             .populate("productId")
-            .populate("supplierId", "name")
+            .populate("supplierId", "companyName")
             .populate("location", "name")
             .sort({ updatedAt: -1 });
 
@@ -103,44 +90,31 @@ export const filterStockLots = async (req: Request, res: Response): Promise<void
     }
 };
 
-
 /* ===================================================
-   🔍 ค้นหา StockLot ด้วย Barcode (สินค้าเดียว)
+   🔍 ค้นหา StockLot ด้วย Barcode (สินค้าเดียว) + สรุป
 =================================================== */
 export const getStockLotsByBarcode = async (req: Request, res: Response): Promise<void> => {
     try {
         const token = req.header("Authorization")?.split(" ")[1];
-        if (!token) {
-            res.status(401).json({ success: false, message: "Unauthorized, no token provided" });
-            return;
-        }
+        if (!token) { res.status(401).json({ success: false, message: "Unauthorized, no token provided" }); return; }
 
         const decoded = verifyToken(token);
         if (typeof decoded === "string" || !("userId" in decoded)) {
-            res.status(401).json({ success: false, message: "Invalid token" });
-            return;
+            res.status(401).json({ success: false, message: "Invalid token" }); return;
         }
 
-        const ownerId = await getOwnerId(decoded.userId);
+        const ownerId = await getOwnerId((decoded as any).userId);
         const { barcode } = req.params;
 
-        // ✅ หา product จาก barcode
         const product = await Product.findOne({ barcode });
-        if (!product) {
-            res.status(404).json({ success: false, message: "ไม่พบสินค้าในระบบ" });
-            return;
-        }
+        if (!product) { res.status(404).json({ success: false, message: "ไม่พบสินค้าในระบบ" }); return; }
 
-        // ✅ ดึงล็อตทั้งหมดของสินค้านี้ (เฉพาะของ owner นี้)
-        const stockLots = await StockLot.find({
-            productId: product._id,
-            userId: ownerId,
-        })
-            .populate("supplierId", "name")
+        const stockLots = await StockLot.find({ productId: product._id, ...ownerScope(ownerId) })
+            .populate("supplierId", "companyName")
             .populate("location", "name")
             .sort({ createdAt: -1 });
 
-        const totalQuantity = stockLots.reduce((sum, lot) => sum + lot.quantity, 0);
+        const totalQuantity = stockLots.reduce((sum, lot) => sum + (lot.quantity || 0), 0);
 
         res.status(200).json({
             success: true,
@@ -163,37 +137,29 @@ export const getStockLotsByBarcode = async (req: Request, res: Response): Promis
 };
 
 /* ===================================================
-   🗓️ อัปเดตวันหมดอายุของล็อต
+   🗓️ อัปเดตวันหมดอายุ (เช็คสิทธิ์ด้วย owner)
 =================================================== */
 export const updateExpiryDate = async (req: Request, res: Response): Promise<void> => {
     try {
         const token = req.header("Authorization")?.split(" ")[1];
-        if (!token) {
-            res.status(401).json({ success: false, message: "Unauthorized" });
-            return;
-        }
+        if (!token) { res.status(401).json({ success: false, message: "Unauthorized" }); return; }
 
         const decoded = verifyToken(token);
         if (typeof decoded === "string" || !("userId" in decoded)) {
-            res.status(401).json({ success: false, message: "Invalid token" });
-            return;
+            res.status(401).json({ success: false, message: "Invalid token" }); return;
         }
+        const ownerId = await getOwnerId((decoded as any).userId);
 
         const { lotId } = req.params;
         const { expiryDate } = req.body;
 
-        const updated = await StockLot.findByIdAndUpdate(
-            lotId,
-            { expiryDate },
-            { new: true }
-        );
+        const lot = await StockLot.findOne({ _id: lotId, ...ownerScope(ownerId) });
+        if (!lot) { res.status(404).json({ success: false, message: "ไม่พบล็อตสินค้าที่ต้องการอัปเดต" }); return; }
 
-        if (!updated) {
-            res.status(404).json({ success: false, message: "ไม่พบล็อตสินค้าที่ต้องการอัปเดต" });
-            return;
-        }
+        lot.expiryDate = expiryDate;
+        await lot.save();
 
-        res.status(200).json({ success: true, message: "อัปเดตวันหมดอายุสำเร็จ", data: updated });
+        res.status(200).json({ success: true, message: "อัปเดตวันหมดอายุสำเร็จ", data: lot });
     } catch (error) {
         console.error("Update Expiry Date Error:", error);
         res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการอัปเดตวันหมดอายุ" });
@@ -201,41 +167,30 @@ export const updateExpiryDate = async (req: Request, res: Response): Promise<voi
 };
 
 /* ===================================================
-   🧪 อัปเดตสถานะ QC ของล็อตสินค้า
+   🧪 อัปเดตสถานะ QC (เช็คสิทธิ์ด้วย owner)
 =================================================== */
 export const updateQCStatus = async (req: Request, res: Response): Promise<void> => {
     try {
         const token = req.header("Authorization")?.split(" ")[1];
-        if (!token) {
-            res.status(401).json({ success: false, message: "Unauthorized" });
-            return;
-        }
+        if (!token) { res.status(401).json({ success: false, message: "Unauthorized" }); return; }
 
         const decoded = verifyToken(token);
         if (typeof decoded === "string" || !("userId" in decoded)) {
-            res.status(401).json({ success: false, message: "Invalid token" });
-            return;
+            res.status(401).json({ success: false, message: "Invalid token" }); return;
         }
+        const ownerId = await getOwnerId((decoded as any).userId);
 
         const { lotId } = req.params;
         const { qcStatus, notes } = req.body;
 
-        const updated = await StockLot.findByIdAndUpdate(
-            lotId,
-            { qcStatus, notes },
-            { new: true }
-        );
+        const lot = await StockLot.findOne({ _id: lotId, ...ownerScope(ownerId) });
+        if (!lot) { res.status(404).json({ success: false, message: "ไม่พบล็อตสินค้า" }); return; }
 
-        if (!updated) {
-            res.status(404).json({ success: false, message: "ไม่พบล็อตสินค้า" });
-            return;
-        }
+        lot.qcStatus = qcStatus;
+        lot.notes = notes;
+        await lot.save();
 
-        res.status(200).json({
-            success: true,
-            message: `อัปเดตสถานะ QC เป็น "${qcStatus}" สำเร็จ`,
-            data: updated,
-        });
+        res.status(200).json({ success: true, message: `อัปเดตสถานะ QC เป็น "${qcStatus}" สำเร็จ`, data: lot });
     } catch (error) {
         console.error("Update QC Error:", error);
         res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการอัปเดตสถานะ QC" });
@@ -243,85 +198,37 @@ export const updateQCStatus = async (req: Request, res: Response): Promise<void>
 };
 
 /* ===================================================
-   🚫 ปิดล็อตสินค้า (Deactivate Stock Lot)
+   🚫 ปิดล็อตสินค้า (Deactivate) — เช็คสิทธิ์ + เก็บรอยเท้า
 =================================================== */
 export const deactivateStockLot = async (req: Request, res: Response): Promise<void> => {
     try {
-        // ✅ ตรวจสอบ token และดึง userId
         const token = req.header("Authorization")?.split(" ")[1];
-        if (!token) {
-            res.status(401).json({ success: false, message: "Unauthorized" });
-            return;
-        }
+        if (!token) { res.status(401).json({ success: false, message: "Unauthorized" }); return; }
 
         const decoded = verifyToken(token);
         if (typeof decoded === "string" || !("userId" in decoded)) {
-            res.status(401).json({ success: false, message: "Invalid token" });
-            return;
+            res.status(401).json({ success: false, message: "Invalid token" }); return;
         }
+        const ownerId = await getOwnerId((decoded as any).userId);
 
-        const userId = decoded.userId;
         const { lotId } = req.params;
         const { reason = "พบสินค้าชำรุดหลัง QC", status = "สินค้าเสียหาย" } = req.body;
 
-        // 🔍 1. หา lot
-        const lot = await StockLot.findById(lotId);
-        if (!lot) {
-            res.status(404).json({ success: false, message: "ไม่พบล็อตสินค้าที่ต้องการปิด" });
-            return;
-        }
+        const lot = await StockLot.findOne({ _id: lotId, ...ownerScope(ownerId) });
+        if (!lot) { res.status(404).json({ success: false, message: "ไม่พบล็อตสินค้าที่ต้องการปิด" }); return; }
 
-        // 🧩 ถ้าปิดไปแล้ว ไม่ให้ปิดซ้ำ
-        if (!lot.isActive) {
-            res.status(400).json({ success: false, message: "ล็อตนี้ถูกปิดไปแล้ว" });
-            return;
-        }
+        if (!lot.isActive) { res.status(400).json({ success: false, message: "ล็อตนี้ถูกปิดไปแล้ว" }); return; }
 
-        // 🧮 2. คำนวณจำนวนที่เหลือในล็อต
-        const lotQty = lot.remainingQty ?? lot.quantity ?? 0;
-
-        // 📦 3. ลดจำนวนใน stock รวม
-        const stock = await Stock.findOne({
-            productId: lot.productId,
-            location: lot.location,
-        });
-
-        if (stock) {
-            const oldQty = stock.totalQuantity ?? 0;
-            const newQty = Math.max(oldQty - lotQty, 0);
-            stock.totalQuantity = newQty;
-            await stock.save();
-
-            console.log(`📉 ลดจำนวนใน Stock: ${oldQty} → ${newQty}`);
-        }
-
-        // 🧾 4. บันทึก StockTransaction (LOT_DEACTIVATE)
-        await StockTransaction.create({
-            stockId: stock?._id || new mongoose.Types.ObjectId(),
-            stockLotId: lot._id,
-            productId: lot.productId,
-            userId,
-            type: "LOT_DEACTIVATE",
-            quantity: -Math.abs(lotQty),
-            reference: `ปิดล็อต: ${lot.batchNumber || lot._id}`,
-            notes: reason,
-            source: "SELF",
-            location: lot.location,
-            costPrice: lot.costPrice ?? undefined,
-        });
-
-        // 🧍‍♂️ 5. ปรับสถานะใน StockLot
         lot.isActive = false;
         lot.status = status;
         lot.reason = reason;
-        lot.closedBy = userId;
+        lot.closedBy = (decoded as any).userId;
         lot.closedAt = new Date();
         await lot.save();
 
-        // ✅ 6. ตอบกลับ
         res.status(200).json({
             success: true,
-            message: "✅ ปิดล็อตสำเร็จ และลดจำนวนสต็อกออกแล้ว",
+            message: "✅ ปิดล็อตสำเร็จ",
             data: {
                 lotId: lot._id,
                 batchNumber: lot.batchNumber,
@@ -331,11 +238,7 @@ export const deactivateStockLot = async (req: Request, res: Response): Promise<v
             },
         });
     } catch (error) {
-        console.error("❌ Deactivate StockLot Error:", error);
-        res.status(500).json({
-            success: false,
-            message: "เกิดข้อผิดพลาดในการปิดล็อต",
-            error: error instanceof Error ? error.message : String(error),
-        });
+        console.error("Deactivate StockLot Error:", error);
+        res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดในการปิดล็อต" });
     }
 };

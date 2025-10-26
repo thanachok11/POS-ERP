@@ -148,7 +148,7 @@ export const addProductWithStock = async (req: Request, res: Response): Promise<
     const newStock = new Stock({
       productId: newProduct!._id,
       userId: decoded.userId,
-      quantity: finalQuantity,
+      totalQuantity: finalQuantity,
       supplierId: supplierDoc._id,
       supplierName: supplierDoc.companyName,
       location: warehouseDoc._id,
@@ -325,7 +325,9 @@ export const updateProductWithStock = async (req: Request, res: Response): Promi
       stock.costPrice = costPrice !== undefined ? Number(costPrice) : stock.costPrice;
       stock.salePrice =
         salePrice !== undefined ? Number(salePrice) : stock.salePrice || stock.costPrice * 1.2;
-      stock.quantity = quantity !== undefined ? Number(quantity) : stock.quantity;
+      if (quantity !== undefined) {
+        stock.totalQuantity = Number(quantity);
+      }
       stock.threshold = threshold !== undefined ? Number(threshold) : stock.threshold;
       stock.batchNumber = batchNumber || stock.batchNumber;
       stock.expiryDate = expiryDate ? new Date(expiryDate) : stock.expiryDate;

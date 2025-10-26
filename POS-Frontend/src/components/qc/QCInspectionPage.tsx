@@ -63,6 +63,7 @@ const QCInspectionPage: React.FC = () => {
         const qc = qcData[batchNumber] || {};
         const token = localStorage.getItem("token") || "";
 
+        // ถ้ายังไม่เลือกระดับสถานะเลย
         if (!qc.status) {
             setPopupMessage(`⚠️ กรุณาเลือกสถานะของ ${item.productName}`);
             setPopupSuccess(false);
@@ -70,23 +71,25 @@ const QCInspectionPage: React.FC = () => {
             return;
         }
 
-        if (qc.status === "ผ่าน" && !qc.expiryDate) {
+        const total = Number(item.quantity || 0);
+        const failed = Number(qc.failedQuantity || 0);
+
+        // 🔧 คำนวณสถานะ "จริง" ที่จะส่งเข้า backend ก่อน
+        let status: "ผ่าน" | "ผ่านบางส่วน" | "ไม่ผ่าน" | "รอตรวจสอบ" = qc.status;
+        if (failed <= 0) status = "ผ่าน";
+        else if (failed >= total) status = "ไม่ผ่าน";
+        else status = "ผ่านบางส่วน";
+
+        // ✅ หลังได้ status จริงแล้วค่อยบังคับวันหมดอายุ
+        const expiry = qc.expiryDate || item.expiryDate || "";
+        if (status === "ผ่าน" && !expiry) {
             setPopupMessage(`⚠️ กรุณากรอกวันหมดอายุของ ${item.productName}`);
             setPopupSuccess(false);
             setShowPopup(true);
             return;
         }
 
-        const total = item.quantity || 0;
-        const failed = Number(qc.failedQuantity) || 0;
         const passed = Math.max(0, total - failed);
-        let status = qc.status;
-
-        // ✅ auto fix status
-        if (failed === 0) status = "ผ่าน";
-        else if (failed === total) status = "ไม่ผ่าน";
-        else if (failed > 0 && failed < total) status = "ผ่านบางส่วน";
-
         setRowLoading(batchNumber);
 
         try {
@@ -100,10 +103,10 @@ const QCInspectionPage: React.FC = () => {
             formData.append("passedQuantity", String(passed));
             formData.append("status", status);
             formData.append("remarks", qc.remarks || "");
-            if (qc.expiryDate) formData.append("expiryDate", qc.expiryDate);
+            if (expiry) formData.append("expiryDate", expiry);  // ส่งเฉพาะเมื่อมี
 
             (files[batchNumber] || []).forEach((file) => {
-                if (file instanceof File) formData.append("attachments", file);
+            if (file instanceof File) formData.append("attachments", file);
             });
 
             const res = await createQCRecord(formData, token);
@@ -111,6 +114,30 @@ const QCInspectionPage: React.FC = () => {
             if (res.success) {
                 const qcRecord = res.data?.qcRecord;
                 const updatedLot = res.data?.updatedLot;
+
+                // ✅ อัปเดต qcData ให้แน่นอน (เก็บ expiry/status ที่เพิ่งส่งขึ้นด้วย)
+                setQcData(prev => ({
+                    ...prev,
+                    [batchNumber]: {
+                    ...(prev[batchNumber] || {}),
+                    ...qcRecord,                       // ของจริงจาก backend
+                    status: qcRecord?.status || status,
+                    expiryDate: qc.expiryDate || qcRecord?.expiryDate || updatedLot?.expiryDate || null,
+                    failedQuantity: qc.failedQuantity ?? qcRecord?.failedQuantity ?? 0,
+                    },
+                }));
+
+                // ✅ เผื่อ UI อื่นอิง PO อยู่ อัปเดต PO ในแถวด้วย
+                if (updatedLot) {
+                    setPo((prev: any) => ({
+                    ...prev,
+                    items: prev.items.map((it: any) =>
+                        it.batchNumber === batchNumber
+                        ? { ...it, qcStatus: updatedLot.qcStatus, expiryDate: updatedLot.expiryDate }
+                        : it
+                    ),
+                    }));
+                }
 
                 // ✅ แสดงข้อความจาก backend
                 setPopupMessage(res.message || `✅ บันทึกผล QC สำเร็จ (${item.productName})`);
@@ -166,20 +193,22 @@ const QCInspectionPage: React.FC = () => {
 
             const missingExpiry: string[] = [];
             po.items.forEach((item: any) => {
-                const qc = qcData[item.batchNumber];
-                if (qc?.status === "ผ่าน" && (!qc?.expiryDate || qc.expiryDate === null)) {
-                    missingExpiry.push(item.productName);
-                }
+            const q = qcData[item.batchNumber] || {};
+            const status = q.status ?? item.qcStatus ?? "รอตรวจสอบ";
+            const expiry = q.expiryDate ?? item.expiryDate ?? null;
+
+            // ✅ บังคับ expiry เฉพาะ “ผ่าน”
+            if (status === "ผ่าน" && !expiry) {
+                missingExpiry.push(item.productName);
+            }
             });
 
             if (missingExpiry.length > 0) {
-                setPopupMessage(
-                    `⚠️ สินค้าต่อไปนี้ยังไม่ได้กรอกวันหมดอายุ:\n${missingExpiry.join("\n")}`
-                );
-                setPopupSuccess(false);
-                setShowPopup(true);
-                setSaving(false);
-                return;
+            setPopupMessage(`⚠️ สินค้าต่อไปนี้ยังไม่ได้กรอกวันหมดอายุ:\n${missingExpiry.join("\n")}`);
+            setPopupSuccess(false);
+            setShowPopup(true);
+            setSaving(false);
+            return;
             }
 
             const res = await updateQCStatus(poId!, { qcStatus: "ผ่าน" }, token);

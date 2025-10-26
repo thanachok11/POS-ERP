@@ -94,25 +94,38 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onSu
     // ✅ handle input fields
     const handleInputChange = (
         e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-    ) => {
+        ) => {
         const { name, value, type } = e.target;
 
         if (name === "supplierId") {
             const supplier = suppliers.find((s) => s._id === value);
             setStockData((prev) => ({
-                ...prev,
-                supplierId: value,
-                supplierName: supplier?.companyName || "",
+            ...prev,
+            supplierId: value,
+            supplierName: supplier?.companyName || "",
             }));
-        } else if (name in productData) {
+            return;
+        }
+
+        // ฟิลด์ตัวเลขของ stock
+        const numericStockFields = new Set([
+            "totalQuantity", "threshold", "costPrice", "salePrice", "lastPurchasePrice"
+        ]);
+
+        if (name in productData) {
             setProductData((prev) => ({ ...prev, [name]: value }));
         } else if (name in stockData) {
             setStockData((prev) => ({
-                ...prev,
-                [name]: type === "checkbox" ? (e.target as HTMLInputElement).checked : value,
+            ...prev,
+            [name]:
+                type === "checkbox"
+                ? (e.target as HTMLInputElement).checked
+                : numericStockFields.has(name)
+                ? Number(value || 0)
+                : value,
             }));
         }
-    };
+        };
 
     // ✅ handle image preview
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,15 +162,20 @@ const AddProductModal: React.FC<AddProductModalProps> = ({ isOpen, onClose, onSu
         const formData = new FormData();
 
         Object.entries(productData).forEach(([key, value]) => {
-            formData.append(key, String(value));
+            formData.append(key, String(value ?? ""));
         });
 
         formData.append("image", image);
 
         Object.entries(stockData).forEach(([key, value]) => {
             if (Array.isArray(value)) formData.append(key, JSON.stringify(value));
-            else formData.append(key, String(value));
+            else formData.append(key, String(value ?? ""));
         });
+
+        formData.set("totalQuantity", String(stockData.totalQuantity || 0));
+        formData.set("quantity", String(stockData.totalQuantity || 0));
+
+        console.log("Debug submit stockData:", stockData);
 
         try {
             const response = await uploadProduct(formData, token);

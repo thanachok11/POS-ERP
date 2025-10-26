@@ -24,7 +24,7 @@ body {
 }
 
 .app-container.sidebar-open .display {
-  margin-left: 150px;
+  margin-left: 200px;
   transition: width 0.3s ease-in-out, margin-left 0.3s ease-in-out;
 }
 

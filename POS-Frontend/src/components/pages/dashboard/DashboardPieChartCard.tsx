@@ -5,6 +5,7 @@ import {
   Pie,
   Cell,
   Tooltip,
+  PieLabelRenderProps,
 } from "recharts";
 
 interface PieItem {
@@ -19,6 +20,8 @@ interface DashboardPieChartCardProps {
   valueFormatter?: (value: number) => string;
   colors: string[];
 }
+
+const RADIAN = Math.PI / 180;
 
 const DashboardPieChartCard: React.FC<DashboardPieChartCardProps> = ({
   data,
@@ -41,14 +44,16 @@ const DashboardPieChartCard: React.FC<DashboardPieChartCardProps> = ({
     <>
       <div className="chart-wrapper">
         <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
+          <PieChart style={{ width: "100%", height: "100%" }}>
             <Pie
               data={chartData}
               dataKey="value"
               nameKey="name"
-              innerRadius={55}
-              outerRadius={90}
-              paddingAngle={3}
+              innerRadius="72%"
+              outerRadius="100%"
+              paddingAngle={5}
+              cornerRadius="45%"
+              labelLine={false}
             >
               {chartData.map((entry, index) => (
                 <Cell

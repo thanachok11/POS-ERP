@@ -38,6 +38,9 @@ const COLORS = [
 const GRADIENTS = {
   purple: { id: "gPurple", from: "#6C5CE7", to: "rgba(108,92,231,0.12)" },
 };
+
+const LINE_CHART_HEIGHT = 320;
+const PIE_CHART_HEIGHT = 300;
 type RangeKey = "daily" | "weekly" | "monthly";
 const DEFAULT_IMG = "https://cdn-icons-png.flaticon.com/512/2331/2331970.png";
 
@@ -180,29 +183,6 @@ const describePaymentType = (type: string, amount: number) => {
   return `⚪ ${type}`;
 };
 
-const RADIAN = Math.PI / 180;
-const renderPieValueLabel = (props: any) => {
-  const { cx, cy, midAngle, innerRadius, outerRadius, name, value } = props;
-  if (!outerRadius) return null;
-  const radius = innerRadius + (outerRadius - innerRadius) * 1.05;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
-  const displayValue = `${name}`;
-  return (
-    <text
-      x={x}
-      y={y}
-      fill="#0f172a"
-      fontSize={12}
-      fontWeight={600}
-      textAnchor={x > cx ? "start" : "end"}
-      dominantBaseline="central"
-    >
-      {displayValue}
-    </text>
-  );
-};
-
 const STOCK_TYPE_META: Record<
   string,
   { label: string; tone: "in" | "out" | "adjust" }
@@ -249,7 +229,7 @@ export default function HomePage() {
     if (token) {
       try {
         setUser(jwtDecode(token));
-      } catch { }
+      } catch {}
     }
     setLoading(false);
   }, []);
@@ -273,17 +253,17 @@ export default function HomePage() {
         const payRaw = Array.isArray(payRes?.data)
           ? payRes.data
           : Array.isArray(payRes)
-            ? payRes
-            : [];
+          ? payRes
+          : [];
         const paymentSanitized: PaymentEntry[] = payRaw
           .filter(Boolean)
           .map((item: any, index: number) => {
             const amount = sanitizeNumber(
               item?.amount ??
-              item?.total ??
-              item?.totalAmount ??
-              item?.netAmount ??
-              item?.grandTotal
+                item?.total ??
+                item?.totalAmount ??
+                item?.netAmount ??
+                item?.grandTotal
             );
             const rawType = (
               item?.type ||
@@ -297,19 +277,19 @@ export default function HomePage() {
             const normalizedType = rawType
               ? rawType.toUpperCase()
               : amount < 0
-                ? "REFUND"
-                : amount === 0
-                  ? "OTHER"
-                  : "SALE";
+              ? "REFUND"
+              : amount === 0
+              ? "OTHER"
+              : "SALE";
 
             return {
               id: String(item?._id || item?.id || item?.saleId || index),
               saleId: String(
                 item?.saleId ||
-                item?.saleCode ||
-                item?.reference ||
-                item?.orderId ||
-                "-"
+                  item?.saleCode ||
+                  item?.reference ||
+                  item?.orderId ||
+                  "-"
               ),
               paymentMethod:
                 item?.paymentMethod ||
@@ -346,8 +326,8 @@ export default function HomePage() {
         const poRaw = Array.isArray(poRes?.data)
           ? poRes.data
           : Array.isArray(poRes)
-            ? poRes
-            : [];
+          ? poRes
+          : [];
         const purchaseSanitized: PurchaseOrderEntry[] = poRaw
           .filter(Boolean)
           .map((po: any, index: number) => ({
@@ -371,8 +351,8 @@ export default function HomePage() {
         const txRaw = Array.isArray(txRes?.data)
           ? txRes.data
           : Array.isArray(txRes)
-            ? txRes
-            : [];
+          ? txRes
+          : [];
         const stockSanitized: StockTimelineEntry[] = txRaw
           .filter(Boolean)
           .map((tx: any, index: number) => {
@@ -433,18 +413,18 @@ export default function HomePage() {
 
             const costPrice = sanitizeNumber(
               tx?.costPrice ??
-              lot?.costPrice ??
-              stock?.costPrice ??
-              product?.costPrice ??
-              product?.purchasePrice
+                lot?.costPrice ??
+                stock?.costPrice ??
+                product?.costPrice ??
+                product?.purchasePrice
             );
 
             const salePrice = sanitizeNumber(
               tx?.salePrice ??
-              lot?.salePrice ??
-              stock?.salePrice ??
-              product?.salePrice ??
-              product?.price
+                lot?.salePrice ??
+                stock?.salePrice ??
+                product?.salePrice ??
+                product?.price
             );
 
             const userName = [user?.firstName, user?.lastName]
@@ -502,8 +482,8 @@ export default function HomePage() {
         const prodList = Array.isArray(prodRes?.data)
           ? prodRes.data
           : Array.isArray(prodRes)
-            ? prodRes
-            : [];
+          ? prodRes
+          : [];
         setProducts(prodList);
       } catch (e) {
         console.error("Load dashboard blocks failed:", e);
@@ -564,8 +544,8 @@ export default function HomePage() {
     filter === "daily"
       ? "กราฟยอดขายวันนี้ (รายชั่วโมง)"
       : filter === "weekly"
-        ? "กราฟยอดขายสัปดาห์นี้ (รายวัน)"
-        : "กราฟยอดขายเดือนนี้ (รายสัปดาห์)";
+      ? "กราฟยอดขายสัปดาห์นี้ (รายวัน)"
+      : "กราฟยอดขายเดือนนี้ (รายสัปดาห์)";
 
   const rangeEntries = useMemo(() => {
     const raw = Array.isArray(summaryData?.[filter]) ? summaryData[filter] : [];
@@ -582,10 +562,10 @@ export default function HomePage() {
           profit: Number(entry?.totalProfit ?? entry?.profit ?? entry?.netProfit ?? 0),
           quantity: Number(
             entry?.totalQuantity ??
-            entry?.quantity ??
-            entry?.soldQuantity ??
-            entry?.units ??
-            0
+              entry?.quantity ??
+              entry?.soldQuantity ??
+              entry?.units ??
+              0
           ),
         };
       })
@@ -687,7 +667,7 @@ export default function HomePage() {
     [purchaseOrders, currentRangeKey]
   );
 
-  const poPie = useMemo(() => {
+  const poPieEntries = useMemo(() => {
     const approvedTotalsByProduct: Record<string, { name: string; value: number }> = {};
     purchaseInRange.forEach((po: any) => {
       const approvedBatches = new Set(
@@ -708,14 +688,14 @@ export default function HomePage() {
         };
       });
     });
-    return Object.values(approvedTotalsByProduct)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
+    return Object.values(approvedTotalsByProduct).sort((a, b) => b.value - a.value);
   }, [purchaseInRange]);
 
+  const poPie = useMemo(() => poPieEntries.slice(0, 8), [poPieEntries]);
+
   const poExpenseInRange = useMemo(
-    () => poPie.reduce((sum, entry) => sum + entry.value, 0),
-    [poPie]
+    () => poPieEntries.reduce((sum, entry) => sum + entry.value, 0),
+    [poPieEntries]
   );
 
   const stockTimeline = useMemo(() => {
@@ -729,12 +709,12 @@ export default function HomePage() {
         const stamp = row.createdAt ? toBangkokDate(new Date(row.createdAt)) : null;
         const when = stamp
           ? stamp.toLocaleString("th-TH", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
           : "-";
         return {
           id: row.id,
@@ -808,18 +788,27 @@ export default function HomePage() {
 
   // ====== UI ======
   return (
-    <div className="display home-gradient">
+    <div className="display">
+      <div className="home-gradient">
       <div className="dashboard-overview">
         <div className="dash-grid">
           {/* Top 5 */}
-
+          <section className="panel card-like area-top5">
+            <h2 className="section-title">สินค้าขายดี (Top 5)</h2>
+            <TopProductsSlider
+              items={topProductsFromApi.slice(0, 5)}
+            />
+          </section>
 
           {/* เส้นรายชั่วโมง */}
           <section className="panel card-like area-receipt">
             <h2 className="section-title">{lineTitle}</h2>
             <div className="chart-rect">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={lineChartData}>
+              <ResponsiveContainer width="100%" height={LINE_CHART_HEIGHT}>
+                <LineChart
+                  data={lineChartData}
+                  margin={{ top: 20, right: 24, bottom: 28, left: 12 }}
+                >
                   <defs>
                     <linearGradient
                       id={GRADIENTS.purple.id}
@@ -855,8 +844,8 @@ export default function HomePage() {
           <section className="panel card-like area-pie1">
             <h2 className="section-title">รายได้ & กำไรรวม ({rangeLabel})</h2>
             <div className="pie-rect">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
+              <ResponsiveContainer width="100%" height={PIE_CHART_HEIGHT}>
+                <PieChart margin={{ top: 10, right: 20, left: 20, bottom: 32 }}>
                   <Tooltip formatter={(v: number) => formatCurrency(Number(v))} />
                   <Legend verticalAlign="bottom" height={48} />
                   <Pie
@@ -884,11 +873,12 @@ export default function HomePage() {
 
           {/* พาย 2: PO (QC ผ่าน) */}
           <section className="panel card-like area-pie2">
-            <h2 className="section-title">มูลค่าการสั่งซื้อ{rangeLabel}</h2>
+            <h2 className="section-title">QC ผ่าน {rangeLabel}</h2>
             <div className="pie-rect">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
+              <ResponsiveContainer width="100%" height={PIE_CHART_HEIGHT}>
+                <PieChart margin={{ top: 10, right: 20, left: 20, bottom: 24 }}>
                   <Tooltip formatter={(v: number) => formatCurrency(Number(v))} />
+                  <Legend verticalAlign="bottom" height={44} />
                   <Pie
                     data={poPie}
                     dataKey="value"
@@ -896,7 +886,7 @@ export default function HomePage() {
                     innerRadius={45}
                     outerRadius={85}
                     labelLine={false}
-                    label={renderPieValueLabel}
+                    paddingAngle={3}
                   >
                     {poPie.map((_, idx) => (
                       <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
@@ -923,7 +913,7 @@ export default function HomePage() {
             <div className="kpi-val">{formatCurrency(profitTotal)}</div>
           </div>
           <div className="kpi card-like area-kpi4">
-            <div className="kpi-head">ค่าใช้จ่ายการสั่งสินค้า(QC ผ่าน {rangeLabel})</div>
+            <div className="kpi-head">ค่าใช้จ่ายใบสั่งซื้อ ({rangeLabel})</div>
             <div className="kpi-val">{formatCurrency(poExpenseInRange)}</div>
           </div>
 
@@ -1015,6 +1005,7 @@ export default function HomePage() {
           </section>
         </div>
       </div>
+    </div>
     </div>
   );
 }
