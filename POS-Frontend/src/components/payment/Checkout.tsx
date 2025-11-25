@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import "../../styles/payment/Checkout.css";
-import { useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faTimes,
@@ -65,7 +64,6 @@ const Checkout: React.FC<CheckoutProps> = ({
         message: "",
         isSuccess: true,
     });
-  const navigate = useNavigate();
   const token = localStorage.getItem("token");
 
   // ✅ โหลดส่วนลดทั้งหมด

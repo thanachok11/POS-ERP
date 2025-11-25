@@ -56,7 +56,6 @@ export const getStockByProductId = async (req: Request, res: Response): Promise<
     res.status(500).json({ success:false, message:"Server error while fetching stock data" });
   }
 };
-
 /* =========================================================
    📦 ดึง Stock ทั้งหมด + สรุปล็อต/วันหมดอายุ (จำกัดด้วย owner)
 ========================================================= */
@@ -72,36 +71,58 @@ export const getStocks = async (req: Request, res: Response): Promise<void> => {
       res.status(401).json({ success: false, message: "Invalid token" });
       return;
     }
-    const ownerId = await getOwnerId((decoded as any).userId);
 
+    const ownerId = await getOwnerId((decoded as any).userId);
     const ownerObjId = new mongoose.Types.ObjectId(ownerId);
 
-    // stocks เฉพาะของ owner
+    /* ----------------------------------------
+       📌 1) ดึง stocks ที่เป็นของ owner
+    ----------------------------------------- */
     const stocks = await Stock.find({ userId: ownerObjId })
       .populate({ path: "productId", populate: { path: "category" } })
       .populate("supplierId")
       .populate("location")
       .lean();
 
-    // lots เฉพาะของ owner + active
-    const lots = await StockLot.find({ userId: ownerObjId, isActive: true })
-      .select("stockId batchNumber productId expiryDate quantity qcStatus isActive isClosed expiryStatus remainingQty")
+    /* ----------------------------------------
+       📌 2) ดึง lots ที่ยังไม่ปิดล็อต + ยัง Active
+          ❗ isClosed = false คือเงื่อนไขสำคัญ
+    ----------------------------------------- */
+    const lots = await StockLot.find({
+      userId: ownerObjId,
+      isActive: true,
+      isClosed: false
+    })
+      .select(
+        "stockId batchNumber productId expiryDate quantity qcStatus isActive isClosed expiryStatus remainingQty"
+      )
       .lean();
 
     const now = new Date();
+
+    /* ----------------------------------------
+       📌 3) ผูก lots → stock ทีละตัว
+    ----------------------------------------- */
     const stockWithLots = stocks.map((stock: any) => {
       const relatedLots = lots.filter(l => String(l.stockId) === String(stock._id));
 
-      // วันหมดอายุใกล้สุด
-      const expiries = relatedLots.filter(l => l.expiryDate).map(l => new Date(l.expiryDate!))
-        .sort((a,b) => a.getTime() - b.getTime());
+      // เรียงวันหมดอายุ ใกล้สุด
+      const expiries = relatedLots
+        .filter(l => l.expiryDate)
+        .map(l => new Date(l.expiryDate!))
+        .sort((a, b) => a.getTime() - b.getTime());
       const nearestExpiry = expiries[0] || null;
 
-      // จำแนกสถานะวันหมดอายุ
-      const expiredLots = relatedLots.filter(l => l.expiryDate && new Date(l.expiryDate) < now);
+      // จำแนก Lot ที่หมดอายุและใกล้หมดอายุ
+      const expiredLots = relatedLots.filter(
+        l => l.expiryDate && new Date(l.expiryDate) < now
+      );
+
       const nearExpiryLots = relatedLots.filter(l => {
         if (!l.expiryDate) return false;
-        const d = Math.ceil((new Date(l.expiryDate).getTime() - now.getTime())/(1000*60*60*24));
+        const d = Math.ceil(
+          (new Date(l.expiryDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+        );
         return d >= 0 && d <= 10;
       });
 
@@ -126,6 +147,9 @@ export const getStocks = async (req: Request, res: Response): Promise<void> => {
         expiryStatus,
         expiredLotsCount: expiredLots.length,
         nearExpiryLotsCount: nearExpiryLots.length,
+
+        // รวมจำนวนสินค้าจากล็อตที่ยังมีผลใช้งาน
+        totalQuantity: relatedLots.reduce((sum, l) => sum + l.quantity, 0),
       };
     });
 
@@ -139,6 +163,7 @@ export const getStocks = async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({ success: false, message: "Server error while fetching stocks" });
   }
 };
+
 
 /* =========================================================
    🔎 ดึง stock ตาม barcode (จำกัดด้วย owner)

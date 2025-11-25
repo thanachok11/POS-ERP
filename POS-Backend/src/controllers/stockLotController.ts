@@ -28,30 +28,48 @@ const ownerScope = (ownerId: string) => ({
 });
 
 /* ===================================================
-   📦 ดึง StockLot ทั้งหมดของ owner
+   📦 ดึง StockLot ทั้งหมดของ owner (เฉพาะที่ยังไม่ปิดล็อต)
 =================================================== */
 export const getStockLots = async (req: Request, res: Response): Promise<void> => {
     try {
         const token = req.header("Authorization")?.split(" ")[1];
-        if (!token) { res.status(401).json({ success: false, message: "Unauthorized, no token provided" }); return; }
+        if (!token) {
+            res.status(401).json({ success: false, message: "Unauthorized, no token provided" });
+            return;
+        }
 
         const decoded = verifyToken(token);
         if (typeof decoded === "string" || !("userId" in decoded)) {
-            res.status(401).json({ success: false, message: "Invalid token" }); return;
+            res.status(401).json({ success: false, message: "Invalid token" });
+            return;
         }
 
         const ownerId = await getOwnerId((decoded as any).userId);
 
-        const stockLots = await StockLot.find(ownerScope(ownerId))
-            .populate({ path: "productId", populate: { path: "category" } })
+        const stockLots = await StockLot.find({
+            ...ownerScope(ownerId),
+            isClosed: false,   
+            isActive: true     
+        })
+            .populate({
+                path: "productId",
+                populate: { path: "category" }
+            })
             .populate("supplierId", "companyName")
             .populate("location")
             .sort({ updatedAt: -1 });
 
-        res.status(200).json({ success: true, data: stockLots });
+        res.status(200).json({
+            success: true,
+            data: stockLots
+        });
+
     } catch (error) {
         console.error("Get StockLots Error:", error);
-        res.status(500).json({ success: false, message: "Server error while fetching stock lots" });
+        res.status(500).json({
+            success: false,
+            message: "Server error while fetching stock lots"
+        });
     }
 };
 
@@ -209,21 +227,30 @@ export const deactivateStockLot = async (req: Request, res: Response): Promise<v
         if (typeof decoded === "string" || !("userId" in decoded)) {
             res.status(401).json({ success: false, message: "Invalid token" }); return;
         }
+
         const ownerId = await getOwnerId((decoded as any).userId);
 
         const { lotId } = req.params;
-        const { reason = "พบสินค้าชำรุดหลัง QC", status = "สินค้าเสียหาย" } = req.body;
+        const { reason = "พบสินค้าชำรุดหลัง QC" } = req.body;
 
         const lot = await StockLot.findOne({ _id: lotId, ...ownerScope(ownerId) });
-        if (!lot) { res.status(404).json({ success: false, message: "ไม่พบล็อตสินค้าที่ต้องการปิด" }); return; }
+        if (!lot) {
+            res.status(404).json({ success: false, message: "ไม่พบล็อตสินค้าที่ต้องการปิด" });
+            return;
+        }
 
-        if (!lot.isActive) { res.status(400).json({ success: false, message: "ล็อตนี้ถูกปิดไปแล้ว" }); return; }
+        if (!lot.isActive) {
+            res.status(400).json({ success: false, message: "ล็อตนี้ถูกปิดไปแล้ว" });
+            return;
+        }
 
         lot.isActive = false;
-        lot.status = status;
-        lot.reason = reason;
-        lot.closedBy = (decoded as any).userId;
+        lot.isClosed = true;
+        lot.status = "ปิดล็อต";      
+        lot.reason = reason;     
+        lot.closedBy = decoded.userId;
         lot.closedAt = new Date();
+
         await lot.save();
 
         res.status(200).json({
