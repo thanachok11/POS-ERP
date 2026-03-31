@@ -98,53 +98,32 @@
   position: absolute;
   top: 10px;
   left: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 800;
   color: #fff;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   z-index: 2;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.25);
+  background: #1e293b;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
 }
 
 .top5-slider .rank-badge.rank-1 {
-  background: linear-gradient(135deg, #fbbf24, #f59e0b);
-  color: #1f2937;
-  box-shadow: 0 12px 24px rgba(245, 158, 11, 0.35);
+  background: #3b82f6;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 .top5-slider .rank-badge.rank-2 {
-  background: linear-gradient(135deg, #94a3b8, #cbd5f5);
-  color: #1e293b;
+  background: #64748b;
 }
 
 .top5-slider .rank-badge.rank-3 {
-  background: linear-gradient(135deg, #f97316, #fb923c);
-}
-
-.top5-slider .rank-badge.rank-4 {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-}
-
-.top5-slider .rank-badge.rank-5 {
-  background: linear-gradient(135deg, #0ea5e9, #22d3ee);
-}
-
-.top5-slider .item[data-rank="1"] .img-wrap::after,
-.top5-slider .item[data-rank="2"] .img-wrap::after,
-.top5-slider .item[data-rank="3"] .img-wrap::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.9);
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4);
-  pointer-events: none;
+  background: #94a3b8;
 }
 
 .top5-slider .item[data-rank="1"] .img-wrap {
-  box-shadow: 0 16px 36px rgba(245, 158, 11, 0.35);
+  box-shadow: 0 12px 24px rgba(59, 130, 246, 0.15);
 }
 
 .top5-slider .item[data-rank="2"] .img-wrap {

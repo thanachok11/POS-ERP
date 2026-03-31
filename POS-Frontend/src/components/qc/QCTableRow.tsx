@@ -187,7 +187,23 @@ const QCTableRow: React.FC<QCTableRowProps> = ({
                     />
                 </label>
                 {files[batchNumber]?.length > 0 && (
-                    <p className="qc-file-count">📎 {files[batchNumber].length} ไฟล์</p>
+                    <p className="qc-file-count">📎 {files[batchNumber].length} ไฟล์ใหม่</p>
+                )}
+
+                {/* ✅ แสดงรูปที่บันทึกแล้วจาก Database */}
+                {normalizedQC.attachments?.length > 0 && (
+                    <div className="qc-attachments-wrapper">
+                        {normalizedQC.attachments.map((file: any, idx: number) => (
+                            <img
+                                key={idx}
+                                src={file.url}
+                                alt={`QC-${idx}`}
+                                className="qc-thumbnail"
+                                title="คลิกเพื่อดูรูปใหญ่"
+                                onClick={() => window.open(file.url, "_blank")}
+                            />
+                        ))}
+                    </div>
                 )}
             </td>
 

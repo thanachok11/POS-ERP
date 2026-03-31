@@ -28,15 +28,15 @@ import { getProducts } from "../../api/product/productApi";
 import TopProductsSlider from "./TopProductsSlider";
 
 const COLORS = [
-  "#6C5CE7",
-  "#00C49F",
-  "#FF6B6B",
-  "#FFA62B",
-  "#5AD8A6",
-  "#845EC2",
+  "#3b82f6", // Blue 500
+  "#64748b", // Slate 500
+  "#10b981", // Emerald 500
+  "#f59e0b", // Amber 500
+  "#6366f1", // Indigo 500
+  "#94a3b8", // Slate 400
 ];
 const GRADIENTS = {
-  purple: { id: "gPurple", from: "#6C5CE7", to: "rgba(108,92,231,0.12)" },
+  blue: { id: "gBlue", from: "#3b82f6", to: "rgba(59, 130, 246, 0.05)" },
 };
 
 const LINE_CHART_HEIGHT = 320;
@@ -789,7 +789,6 @@ export default function HomePage() {
   // ====== UI ======
   return (
     <div className="display">
-      <div className="home-gradient">
       <div className="dashboard-overview">
         <div className="dash-grid">
           {/* Top 5 */}
@@ -811,21 +810,21 @@ export default function HomePage() {
                 >
                   <defs>
                     <linearGradient
-                      id={GRADIENTS.purple.id}
+                      id={GRADIENTS.blue.id}
                       x1="0"
                       y1="0"
                       x2="0"
                       y2="1"
                     >
                       <stop
-                        offset="0%"
-                        stopColor={GRADIENTS.purple.from}
-                        stopOpacity={0.9}
+                        offset="5%"
+                        stopColor={GRADIENTS.blue.from}
+                        stopOpacity={0.8}
                       />
                       <stop
-                        offset="100%"
-                        stopColor={GRADIENTS.purple.to}
-                        stopOpacity={0.4}
+                        offset="95%"
+                        stopColor={GRADIENTS.blue.to}
+                        stopOpacity={0}
                       />
                     </linearGradient>
                   </defs>
@@ -833,8 +832,8 @@ export default function HomePage() {
                   <XAxis dataKey="label" />
                   <YAxis />
                   <Tooltip formatter={(v: number) => formatCurrency(Number(v))} />
-                  <Line type="monotone" dataKey="value" stroke="#6C5CE7" strokeWidth={2} dot={false} />
-                  <Area type="monotone" dataKey="value" stroke="none" fill="url(#gPurple)" />
+                  <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6, strokeWidth: 0 }} />
+                  <Area type="monotone" dataKey="value" stroke="none" fill="url(#gBlue)" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -858,7 +857,7 @@ export default function HomePage() {
                     labelLine={false}
                   >
                     {paymentPie.map((_, idx) => (
-                      <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                      <Cell key={idx} fill={idx === 0 ? "#10b981" : "#3b82f6"} />
                     ))}
                     <Label
                       value={formatCurrency(paymentPieRevenue)}
@@ -889,7 +888,7 @@ export default function HomePage() {
                     paddingAngle={3}
                   >
                     {poPie.map((_, idx) => (
-                      <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                      <Cell key={idx} fill={idx === 0 ? "#3b82f6" : COLORS[(idx + 1) % COLORS.length]} />
                     ))}
                   </Pie>
                 </PieChart>
@@ -1005,7 +1004,6 @@ export default function HomePage() {
           </section>
         </div>
       </div>
-    </div>
     </div>
   );
 }

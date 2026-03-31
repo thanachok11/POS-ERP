@@ -2,8 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 
-import axios from "axios";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 import Homepage from "./components/pages/Homepage";
 import Header from "./components/layout/Header";
 import Sidebar from "./components/layout/Sidebar";
@@ -29,96 +28,46 @@ import { GlobalPopupProvider } from "./components/common/GlobalPopupEdit";
 import QCInspectionPage from "./components/qc/QCInspectionPage";
 import RefundPage from "./components/payment/RefundPage";
 import StockLotPage from "./components/stock/stocklot/StockLotPage";
-import { jwtDecode } from "jwt-decode";
-import { renewToken } from "./api/auth/auth";
+import { getMenuName } from "./constants/menuMapping";
+import { isTokenValid } from "./utils/authUtils";
+import { useTokenRefresh } from "./hooks/useTokenRefresh";
+import "./api/apiClient"; // Import to initialize interceptors and global config
 
 import "./App.css";
 
-// ✅ Interceptor ตรวจสอบ response
-axios.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    const status = error.response?.status;
-    if (status === 401 || status === 403) {
-      localStorage.removeItem("token");
-      window.location.href = "/";
-    }
-    return Promise.reject(error);
-  }
-);
-
-// ✅ ฟังก์ชันเช็ค token หมดอายุ
-const isTokenValid = (token: string | null): boolean => {
-  if (!token) return false;
-  try {
-    const decoded: any = jwtDecode(token);
-    const currentTime = Date.now() / 1000;
-    return decoded.exp > currentTime;
-  } catch {
-    return false;
-  }
-};
 
 const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
-  const [activeMenu, setActiveMenu] = useState<string>(""); // ✅ state สำหรับเก็บชื่อเมนู
+  const [activeMenu, setActiveMenu] = useState<string>(""); // state สำหรับเก็บชื่อเมนู
 
   const navigate = useNavigate();
   const location = useLocation();
   const isLoggedIn: boolean = Boolean(token && isTokenValid(token));
 
   // mock user (ภายหลังอาจดึงจาก API หรือ localStorage)
-  const [user, setUser] = useState<{ role: string; nameStore: string } | null>({
+  const [user ] = useState<{ role: string; nameStore: string } | null>({
     role: "admin",
     nameStore: "EAZYPOS",
   });
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
-  // ✅ toggle dropdown
+  // toggle dropdown
   const toggleDropdown = (menu: string) => {
     setOpenDropdown(openDropdown === menu ? null : menu);
   };
 
-  // ✅ handle click menu
+  // handle click menu
   const handleMenuClick = (path: string, menuName: string) => {
     setActiveMenu(menuName);   // อัปเดตชื่อเมนู
     navigate(path);            // ไปยัง path โดยไม่ต้องรีเฟรช
   };
   useEffect(() => {
-    const pathToMenu: Record<string, string> = {
-      "/shop": "ซื้อสินค้า",
-      "/reports/sales": "รายงานยอดขาย",
-      "/reports/stock": "รายงานสินค้าคงเหลือ",
-      "/reports/receipts": "ใบเสร็จ",
-      "/reports/salehistory": "ประวัติการขาย",
-      "/stocks": "สต็อกสินค้า",
-      "/createOrder": "นำเข้าสินค้าใหม่",
-      "/barcode": "บาร์โค้ด",
-      "/debt": "ค้างชำระ",
-      "/expired": "สินค้าเหลือน้อย/สินค้าหมด",
-      "/setting/employee": "ตั้งค่าพนักงาน",
-      "/suppliers": "ผู้ผลิต",
-      "/create-purchase-order": "สร้างคำสั่งซื้อ",
-      "/purchase-orders": "คำสั่งซื้อ",
-      "/stockTransaction": "ประวัติการเคลื่อนไหวของคลังสินค้า",
-      "/discount": "จัดการส่วนลด",
-      "/qc": "ตรวจสอบสินค้า (QC)",
-      "/warehouse": "จัดการคลังสินค้า",
-      "/refund": "คืนสินค้า",
-      "/user": "จัดการผู้ใช้งาน",
-      "/stocklots": "จัดการล็อตสินค้า",
-      "/products": "จัดการสินค้า",
-      "/": "หน้าแรก",
-      "/dashboard": "หน้าแรก",
-    };
-
-    const menuName = pathToMenu[location.pathname];
+    const menuName = getMenuName(location.pathname, "th");
     if (menuName) {
       setActiveMenu(menuName);
-    } else {
     }
   }, [location.pathname]);
 
@@ -130,51 +79,8 @@ const App: React.FC = () => {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
-  // ✅ Token refresh ตาม activity
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    let lastRenewTime = 0;
-    const COOLDOWN_MS = 5 * 60 * 1000;
-
-    const isTokenExpiringSoon = (token: string | null, bufferSeconds = 60) => {
-      if (!token) return true;
-      try {
-        const decoded: any = jwtDecode(token);
-        const currentTime = Date.now() / 1000;
-        return decoded.exp - currentTime < bufferSeconds;
-      } catch {
-        return true;
-      }
-    };
-
-    const activityDetected = async () => {
-      clearTimeout(timeoutId);
-      const token = localStorage.getItem("token"); // ✅ ดึงจาก localStorage ทุกครั้ง
-      const now = Date.now();
-      const enoughTimePassed = now - lastRenewTime > COOLDOWN_MS;
-      const tokenIsExpiring = isTokenExpiringSoon(token, 60);
-
-      if (token && tokenIsExpiring && enoughTimePassed) {
-        const newToken = await renewToken(token);
-        if (newToken) {
-          localStorage.setItem("token", newToken);
-          lastRenewTime = Date.now();
-          console.log("🔄 Token renewed successfully");
-        }
-      }
-
-      timeoutId = setTimeout(() => { }, COOLDOWN_MS);
-    };
-
-    window.addEventListener("mousemove", activityDetected);
-    window.addEventListener("keydown", activityDetected);
-
-    return () => {
-      clearTimeout(timeoutId);
-      window.removeEventListener("mousemove", activityDetected);
-      window.removeEventListener("keydown", activityDetected);
-    };
-  }, []);
+  // Initialize automatic token refresh hook
+  useTokenRefresh();
 
   return (
     <GlobalPopupProvider>

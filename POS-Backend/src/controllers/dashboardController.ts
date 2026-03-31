@@ -254,16 +254,16 @@ export async function aggregateSales(
                 });
             }
             const p = b.products.get(pKey)!;
-            p.quantity += qty * sign;
-            p.revenue += subtotal * sign;
+            p.quantity += Math.abs(qty) * sign;
+            p.revenue += Math.abs(subtotal) * sign;
         }
 
-        const billNet = Number(r.totalPrice || 0);
-        const billProfit = (billNet - billCost) * sign;
+        const billNet = Math.abs(Number(r.totalPrice || 0));
+        const billProfit = (billNet - Math.abs(billCost)) * sign;
 
-        b.totalSales += billSubtotal * sign;
+        b.totalSales += Math.abs(billSubtotal) * sign;
         b.netSales += billNet * sign;
-        b.totalQuantity += billQty * sign;
+        b.totalQuantity += Math.abs(billQty) * sign;
         b.totalProfit += billProfit;
     }
 

@@ -229,13 +229,13 @@ const PurchaseOrderItemsTable: React.FC<Props> = ({
                                             <div className="qc-attachments-grid">
                                                 {qcRecords.flatMap((qc, idx) =>
                                                     (qc.attachments || []).map(
-                                                        (imgUrl: string, i: number) => (
+                                                        (att: any, i: number) => (
                                                             <img
                                                                 key={`${idx}-${i}`}
-                                                                src={imgUrl}
+                                                                src={att.url || att}
                                                                 alt={`QC Attachment ${i + 1}`}
                                                                 className="qc-thumbnail"
-                                                                onClick={() => setPreviewImage(imgUrl)}
+                                                                onClick={() => setPreviewImage(att.url || att)}
                                                             />
                                                         )
                                                     )

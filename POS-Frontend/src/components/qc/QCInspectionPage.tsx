@@ -246,6 +246,8 @@ const QCInspectionPage: React.FC = () => {
     const isFinalized =
         po.qcStatus === "ผ่าน" || po.qcStatus === "ไม่ผ่าน" || po.qcStatus === "สรุปแล้ว";
 
+    const hasAtLeastOneSaved = Object.values(qcData).some((q: any) => q?._id || q?.id);
+
     return (
         <div className="display">
             <div className="qc-container">
@@ -259,7 +261,7 @@ const QCInspectionPage: React.FC = () => {
                         <FontAwesomeIcon icon={faArrowLeft} /> กลับ
                     </button>
                 </div>
-
+                
                 {/* ✅ ตาราง QC */}
                 <QCTable
                     po={po}
@@ -273,12 +275,16 @@ const QCInspectionPage: React.FC = () => {
                     rowLoading={rowLoading}
                 />
 
+                {!hasAtLeastOneSaved && !isFinalized && (
+                    <p className="qc-hint-text">⚠️ กรุณาบันทึกผล QC อย่างน้อย 1 รายการเพื่อสรุปผล</p>
+                )}
+
                 {/* ✅ ปุ่มสรุป QC */}
                 <div className="qc-finalize-section">
                     <button
-                        className={`qc-submit-btn ${saving || isFinalized || popupLocked ? "disabled" : "active"
+                        className={`qc-submit-btn ${saving || isFinalized || popupLocked || !hasAtLeastOneSaved ? "disabled" : "active"
                             }`}
-                        disabled={saving || isFinalized || popupLocked}
+                        disabled={saving || isFinalized || popupLocked || !hasAtLeastOneSaved}
                         onClick={handleSubmitFinalQC}
                     >
                         {saving ? (
